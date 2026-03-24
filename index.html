@@ -520,11 +520,25 @@
 <script>
   document.getElementById('valForm').addEventListener('submit', function(e) {
     e.preventDefault();
-    this.style.display = 'none';
-    document.getElementById('successMsg').classList.add('visible');
-    // In production: send form data to your backend or a service like Formspree
-    // e.g. fetch('https://formspree.io/f/YOUR_ID', { method:'POST', body: new FormData(this) })
+    var form = this;
+    fetch('https://formspree.io/f/xzdjnavo', {
+      method: 'POST',
+      body: new FormData(form),
+      headers: { 'Accept': 'application/json' }
+    })
+    .then(function(response) {
+      if (response.ok) {
+        form.style.display = 'none';
+        document.getElementById('successMsg').classList.add('visible');
+      } else {
+        alert('Something went wrong. Please try WhatsApp or email instead.');
+      }
+    })
+    .catch(function() {
+      alert('Something went wrong. Please try WhatsApp or email instead.');
+    });
   });
 </script>
+
 </body>
 </html>
