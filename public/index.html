@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>The Heartland Agent — Ali Aldin | GTA West Real Estate</title>
 <meta name="description" content="Free home valuations, buyer representation and real estate investment guidance across Mississauga, Brampton, Oakville, Milton and GTA West."/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -305,6 +305,120 @@ footer{background:var(--dark2);padding:24px 32px;text-align:center;border-top:1p
 .consent-row input[type=checkbox]{width:20px;height:20px;accent-color:#A88644;cursor:pointer;flex-shrink:0;margin-top:2px;}
 .consent-confirmed{display:none;font-size:11px;color:#A88644;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-top:8px;}
 .consent-wrap:has(input:checked) .consent-confirmed{display:block;}
+
+/* ═══════════════════════════════════════
+   MOBILE OPTIMISATION
+   iPhone SE (375px) → iPad (768px)
+═══════════════════════════════════════ */
+
+/* ── All inputs 16px prevents iOS auto-zoom on focus ── */
+input, select, textarea {
+  font-size: 16px !important;
+}
+
+@media (max-width: 768px) {
+
+  /* NAV */
+  nav { padding: 12px 20px; }
+  .nav-txt .t2 { font-size: 11px; letter-spacing: .08em; }
+  .nav-txt .t1, .nav-txt .t3 { font-size: 6px; }
+  .nav-phone { font-size: 12px; }
+  .nav-mark { width: 28px; height: 28px; }
+
+  /* HERO */
+  .hero { padding: 44px 20px 48px; }
+  .hero-logo-svg { width: 160px; }
+  .brand-lockup { margin-top: 10px; }
+  .brand-lockup h1 { font-size: clamp(1.3rem, 6vw, 2rem); letter-spacing: .15em; }
+  .brand-small { font-size: .7rem; letter-spacing: .3em; }
+  .hero-h { font-size: clamp(26px, 7vw, 38px); margin-top: 14px; }
+  .hero-sub { font-size: 14px; padding: 0 4px; }
+  .hero-btns { flex-direction: column; width: 100%; gap: 10px; }
+  .btn-primary, .btn-outline {
+    width: 100%;
+    text-align: center;
+    padding: 16px;
+    font-size: 12px;
+  }
+
+  /* CATEGORY PICKER */
+  .picker { padding: 36px 20px 0; }
+  .picker-title { font-size: clamp(22px, 5vw, 30px); }
+  .picker-sub { font-size: 13px; margin-bottom: 24px; }
+  .cat-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .cat-card { padding: 16px 14px 14px; border-radius: 10px; }
+  .cat-icon { width: 36px; height: 36px; font-size: 18px; border-radius: 8px; margin-bottom: 10px; }
+  .cat-label { font-size: 8px; letter-spacing: .1em; }
+  .cat-desc { font-size: 11px; line-height: 1.5; }
+
+  /* FORMS */
+  .form-wrap { padding: 0 20px 56px; }
+  .form-header { padding: 22px 0 18px; }
+  .form-header-icon { width: 42px; height: 42px; font-size: 20px; }
+  .form-header-title { font-size: 19px; }
+  .form-header-sub { font-size: 11px; }
+  .field label { font-size: 9.5px; }
+  .field input, .field select, .field textarea {
+    padding: 13px 14px;
+    border-radius: 6px;
+    min-height: 48px; /* iOS touch target */
+  }
+  .field textarea { min-height: 88px; }
+  .submit-btn { padding: 16px; font-size: 12px; min-height: 52px; border-radius: 6px; }
+  .or-div { margin: 22px 0; font-size: 10px; }
+  .wa-btn { padding: 15px; font-size: 12px; min-height: 52px; border-radius: 6px; }
+  .consent-wrap { padding: 14px; }
+  .consent-txt { font-size: 12px; }
+  .consent-note { font-size: 10px; }
+
+  /* FORM TABS */
+  .form-tabs { margin-bottom: 24px; }
+  .form-tab { padding: 12px 10px; font-size: 10px; letter-spacing: .08em; }
+
+  /* SUCCESS */
+  .success-panel { padding: 28px 20px; }
+  .success-title { font-size: 22px; }
+  .success-msg { font-size: 13px; }
+
+  /* VALUES STRIP */
+  .values { padding: 24px 16px; }
+  .val span { font-size: 7px; }
+  .val svg { width: 18px; height: 18px; }
+
+  /* TAGLINE */
+  .tagline { padding: 14px 20px; }
+  .tagline-inner { font-size: 7px; letter-spacing: .16em; }
+
+  /* ABOUT */
+  .about { padding: 44px 20px; gap: 20px; }
+  .about-name { font-size: 23px; }
+  .about-body { font-size: 13px; }
+  .area { font-size: 10px; padding: 4px 10px; }
+
+  /* CONTACT */
+  .contact-inner { padding: 36px 20px 24px; }
+  .c-name { font-size: 26px; }
+  .c-detail { font-size: 12px; }
+  .qr-box { width: 76px; height: 76px; }
+  .scan-bar { padding: 18px 20px; }
+  .scan-txt { font-size: 8px; }
+
+  /* FOOTER */
+  footer { padding: 20px; }
+  .ft-legal { font-size: 8.5px; }
+}
+
+/* ── Very small phones (iPhone SE = 375px) ── */
+@media (max-width: 390px) {
+  .cat-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .cat-card { padding: 14px 10px 12px; }
+  .cat-desc { display: none; } /* too small - hide description */
+  .hero-logo-svg { width: 140px; }
+  .hero-h { font-size: 24px; }
+  .brand-lockup h1 { font-size: 1.2rem; }
+  .form-tab { font-size: 9px; letter-spacing: .05em; }
+}
+
 </style>
 </head>
 <body>
