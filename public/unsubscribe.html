@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Unsubscribe — The Heartland Agent</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;1,400&family=DM+Sans:wght@300;400&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'DM Sans',sans-serif;background:#F5F1EA;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;}
+.card{background:#fff;border-radius:16px;padding:48px 40px;max-width:480px;width:100%;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,0.08);}
+.logo{font-size:9px;letter-spacing:.3em;color:#C9A96E;text-transform:uppercase;margin-bottom:4px;}
+.brand{font-family:'Cormorant Garamond',serif;font-size:22px;color:#1C1916;margin-bottom:32px;}
+.icon{font-size:40px;margin-bottom:20px;}
+h1{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:400;color:#1C1916;margin-bottom:12px;}
+p{font-size:14px;color:#706A60;line-height:1.7;margin-bottom:16px;font-weight:300;}
+.btn{display:inline-block;background:#1C1916;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:12px;letter-spacing:.1em;text-transform:uppercase;margin-top:8px;}
+.btn:hover{background:#C9A96E;}
+#status{display:none;}
+#status.show{display:block;}
+.loading{color:#C9A96E;font-size:13px;}
+.success-icon{font-size:40px;color:#25D366;}
+.error-icon{font-size:40px;color:#c00;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">The</div>
+  <div class="brand">Heartland Agent</div>
+
+  <div id="loading">
+    <div class="icon">⏳</div>
+    <h1>Processing your request...</h1>
+    <p class="loading">Please wait a moment.</p>
+  </div>
+
+  <div id="status">
+    <div class="icon" id="status-icon"></div>
+    <h1 id="status-title"></h1>
+    <p id="status-msg"></p>
+    <a href="/" class="btn">Back to Home</a>
+  </div>
+</div>
+
+<script>
+(async function() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token');
+  const email = params.get('email');
+
+  if (!token && !email) {
+    showResult('❓', 'Nothing to unsubscribe', 'No unsubscribe token was found in this link. If you\'d like to unsubscribe, please email Ali directly at aaldin.home@gmail.com.');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/unsubscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, email })
+    });
+
+    if (res.ok) {
+      showResult('✅', 'You\'ve been unsubscribed.', 'You will no longer receive marketing emails from The Heartland Agent. Note: you may still receive direct replies to enquiries you\'ve made. This was processed immediately in compliance with Canada\'s Anti-Spam Legislation (CASL).');
+    } else {
+      throw new Error('Server error');
+    }
+  } catch (e) {
+    showResult('⚠️', 'Something went wrong.', 'We couldn\'t process your request automatically. Please email aaldin.home@gmail.com directly and we\'ll remove you within 10 business days as required by CASL.');
+  }
+})();
+
+function showResult(icon, title, msg) {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('status-icon').textContent = icon;
+  document.getElementById('status-title').textContent = title;
+  document.getElementById('status-msg').textContent = msg;
+  document.getElementById('status').classList.add('show');
+}
+</script>
+</body>
+</html>

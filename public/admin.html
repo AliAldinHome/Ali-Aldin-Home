@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Admin — The Heartland Agent</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root{--gold:#C9A96E;--dark:#1C1916;--cream:#F5F1EA;--mid:#706A60;--lb:rgba(0,0,0,0.08);}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--dark);min-height:100vh;-webkit-font-smoothing:antialiased;}
+nav{background:var(--dark);padding:16px 40px;display:flex;align-items:center;justify-content:space-between;}
+.nav-brand{display:flex;flex-direction:column;}
+.nb1{font-size:8px;letter-spacing:.3em;color:var(--gold);text-transform:uppercase;}
+.nb2{font-family:'Cormorant Garamond',serif;font-size:18px;color:#fff;}
+.nav-badge{background:rgba(201,169,110,0.2);color:var(--gold);font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:4px 10px;border-radius:3px;}
+.wrap{max-width:760px;margin:0 auto;padding:48px 40px;}
+/* Login */
+#login-view{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;}
+.login-card{background:#fff;border-radius:14px;padding:40px;width:100%;max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,0.08);}
+.login-card h1{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:400;margin-bottom:6px;}
+.login-card p{font-size:13px;color:var(--mid);margin-bottom:24px;}
+/* Dashboard */
+#dashboard-view{display:none;}
+.section-title{font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:400;margin-bottom:4px;}
+.section-sub{font-size:13px;color:var(--mid);margin-bottom:32px;}
+/* Fields */
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px;}
+.field label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--mid);font-weight:500;}
+.field input,.field textarea,.field select{background:#fff;border:1.5px solid var(--lb);border-radius:8px;padding:12px 14px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--dark);outline:none;transition:border-color .2s;-webkit-appearance:none;width:100%;}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,169,110,0.12);}
+.field textarea{min-height:200px;resize:vertical;font-size:13px;}
+/* Buttons */
+.btn{padding:13px 28px;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:500;cursor:pointer;border:none;transition:all .2s;}
+.btn-dark{background:var(--dark);color:#fff;}
+.btn-dark:hover{background:#333;}
+.btn-gold{background:var(--gold);color:#fff;}
+.btn-gold:hover{background:#a88644;}
+.btn-outline{background:transparent;border:1.5px solid var(--dark);color:var(--dark);}
+.btn-outline:hover{background:var(--dark);color:#fff;}
+.btn:disabled{background:#ccc;cursor:not-allowed;}
+.btn-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;}
+/* Status */
+.status-box{border-radius:8px;padding:16px 20px;margin-top:16px;font-size:13px;display:none;}
+.status-box.show{display:block;}
+.status-success{background:#f0fff4;border:1px solid #9ae6b4;color:#276749;}
+.status-error{background:#fff5f5;border:1px solid #fed7d7;color:#c53030;}
+.status-info{background:#fffbeb;border:1px solid #fbd38d;color:#744210;}
+/* Separator */
+.sep{border:none;border-top:1px solid var(--lb);margin:36px 0;}
+/* Tips */
+.tips{background:#fff;border:1px solid var(--lb);border-radius:10px;padding:20px 24px;margin-bottom:32px;}
+.tips h3{font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:400;margin-bottom:12px;}
+.tip{font-size:12px;color:var(--mid);margin-bottom:6px;display:flex;gap:8px;align-items:flex-start;}
+.tip-icon{flex-shrink:0;}
+@media(max-width:520px){.wrap{padding:32px 20px;}.btn-row{flex-direction:column;}.btn{width:100%;}}
+</style>
+</head>
+<body>
+<nav>
+  <div class="nav-brand">
+    <span class="nb1">The</span>
+    <span class="nb2">Heartland Agent</span>
+  </div>
+  <span class="nav-badge">Admin Panel</span>
+</nav>
+
+<!-- LOGIN -->
+<div id="login-view">
+  <div class="login-card">
+    <h1>Admin Access</h1>
+    <p>Enter your admin password to continue.</p>
+    <div class="field">
+      <label>Admin Password</label>
+      <input type="password" id="pwd-input" placeholder="Enter password" onkeydown="if(event.key==='Enter')doLogin()"/>
+    </div>
+    <button class="btn btn-dark" style="width:100%" onclick="doLogin()">Sign In →</button>
+    <div class="status-box status-error" id="login-err">Incorrect password.</div>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard-view">
+<div class="wrap">
+  <div class="section-title">Market Update</div>
+  <p class="section-sub">Compose your quarterly market update and send to all subscribed contacts.</p>
+
+  <div class="tips">
+    <h3>Tips for a great market update</h3>
+    <div class="tip"><span class="tip-icon">📊</span><span>Include 2–3 key stats from your CREA email: avg. sold price, days on market, list-to-sale ratio for GTA West</span></div>
+    <div class="tip"><span class="tip-icon">🏙️</span><span>Pick 1–2 neighbourhood highlights — what's happening in Mississauga, Brampton, or Oakville specifically</span></div>
+    <div class="tip"><span class="tip-icon">🔮</span><span>Add your personal insight: "What this means for sellers right now…" or "My take for buyers this quarter…"</span></div>
+    <div class="tip"><span class="tip-icon">📝</span><span>Keep it under 300 words. Short, specific, and useful beats long every time.</span></div>
+    <div class="tip"><span class="tip-icon">👁️</span><span>Always preview to your own email first before sending to everyone.</span></div>
+  </div>
+
+  <div class="field">
+    <label>Quarter / Period Label</label>
+    <input type="text" id="quarter" placeholder="e.g. Q2 2025 · Spring Market Update"/>
+  </div>
+  <div class="field">
+    <label>Email Subject Line</label>
+    <input type="text" id="subject" placeholder="e.g. GTA West: What's happening this spring?"/>
+  </div>
+  <div class="field">
+    <label>Headline (shown in email header)</label>
+    <input type="text" id="headline" placeholder="e.g. Spring Market Update — GTA West"/>
+  </div>
+  <div class="field">
+    <label>Email Body (HTML supported)</label>
+    <textarea id="body" placeholder="Write your market update here. You can use HTML for formatting, e.g.:&#10;&#10;&lt;p&gt;Here's what's happening in the GTA West market this quarter:&lt;/p&gt;&#10;&lt;p&gt;&lt;strong&gt;Average sold price in Mississauga:&lt;/strong&gt; $XXX,XXX (up X% from last quarter)&lt;/p&gt;&#10;&lt;p&gt;My take: ...&lt;/p&gt;"></textarea>
+  </div>
+
+  <hr class="sep" style="margin-top:8px;"/>
+
+  <div class="section-title" style="font-size:20px;">Step 1 — Preview</div>
+  <p style="font-size:13px;color:var(--mid);margin-bottom:16px;">Send a test to yourself first. Always do this before the full send.</p>
+  <div class="field">
+    <label>Preview Email Address</label>
+    <input type="email" id="preview-email" placeholder="aaldin.home@gmail.com"/>
+  </div>
+  <button class="btn btn-outline" onclick="sendPreview()">Send Preview to Me</button>
+  <div class="status-box" id="preview-status"></div>
+
+  <hr class="sep"/>
+
+  <div class="section-title" style="font-size:20px;">Step 2 — Send to All Subscribers</div>
+  <p style="font-size:13px;color:var(--mid);margin-bottom:16px;">This will send to all active, consented contacts in your CRM. Cannot be undone.</p>
+  <div class="btn-row">
+    <button class="btn btn-gold" onclick="confirmSend()">Send to All Subscribers</button>
+  </div>
+  <div class="status-box" id="send-status"></div>
+
+</div>
+</div>
+
+<script>
+var adminPassword = '';
+
+function doLogin() {
+  adminPassword = document.getElementById('pwd-input').value;
+  if (!adminPassword) return;
+
+  // Quick check — real validation is server-side
+  document.getElementById('login-view').style.display = 'none';
+  document.getElementById('dashboard-view').style.display = 'block';
+  document.getElementById('login-err').classList.remove('show');
+}
+
+async function sendPreview() {
+  const previewEmail = document.getElementById('preview-email').value;
+  const body = document.getElementById('body').value;
+  const statusEl = document.getElementById('preview-status');
+
+  if (!previewEmail || !body) {
+    showStatus(statusEl, 'error', 'Please fill in the email body and preview address.');
+    return;
+  }
+
+  showStatus(statusEl, 'info', 'Sending preview...');
+
+  try {
+    const res = await fetch('/api/market-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        adminSecret: adminPassword,
+        subject: document.getElementById('subject').value,
+        headline: document.getElementById('headline').value,
+        body,
+        quarter: document.getElementById('quarter').value,
+        previewEmail
+      })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showStatus(statusEl, 'success', `✅ Preview sent to ${previewEmail}. Check your inbox.`);
+    } else if (res.status === 401) {
+      showStatus(statusEl, 'error', 'Incorrect admin password.');
+    } else {
+      throw new Error(data.error || 'Unknown error');
+    }
+  } catch (e) {
+    showStatus(statusEl, 'error', 'Error: ' + e.message);
+  }
+}
+
+async function confirmSend() {
+  const body = document.getElementById('body').value;
+  const statusEl = document.getElementById('send-status');
+
+  if (!body) {
+    showStatus(statusEl, 'error', 'Please write your market update before sending.');
+    return;
+  }
+
+  if (!confirm('⚠️ This will send to ALL subscribed contacts. Have you previewed it first?\n\nClick OK to confirm the full send.')) return;
+
+  showStatus(statusEl, 'info', 'Sending to all subscribers... please wait, do not close this page.');
+
+  try {
+    const res = await fetch('/api/market-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        adminSecret: adminPassword,
+        subject: document.getElementById('subject').value,
+        headline: document.getElementById('headline').value,
+        body,
+        quarter: document.getElementById('quarter').value
+      })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showStatus(statusEl, 'success', `✅ Done! Sent to ${data.sent} of ${data.total} subscribers.${data.errors > 0 ? ` ${data.errors} failed — check your email for details.` : ''}`);
+    } else if (res.status === 401) {
+      showStatus(statusEl, 'error', '❌ Incorrect admin password. Please refresh and try again.');
+    } else {
+      throw new Error(data.error || 'Server error');
+    }
+  } catch (e) {
+    showStatus(statusEl, 'error', '❌ Error: ' + e.message);
+  }
+}
+
+function showStatus(el, type, msg) {
+  el.className = 'status-box show status-' + type;
+  el.textContent = msg;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "heartland-agent-crm",
+  "version": "2.0.0",
+  "description": "The Heartland Agent — Ali Aldin CRM & Automation",
+  "dependencies": {
+    "nodemailer": "^6.9.9"
+  }
+}
