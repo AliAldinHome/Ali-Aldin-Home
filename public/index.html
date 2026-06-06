@@ -6,7 +6,7 @@
 <title>The Heartland Agent — Ali Aldin | GTA West Real Estate</title>
 <meta name="description" content="Free home valuations, buyer representation and real estate investment guidance across Mississauga, Brampton, Oakville, Milton and GTA West."/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=Syncopate:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
   --cream:#FAF8F6;
@@ -24,7 +24,7 @@
 }
 *{margin:0;padding:0;box-sizing:border-box;}
 html{scroll-behavior:smooth;}
-body{font-family:"DM Sans",sans-serif;background:var(--cream);color:var(--text);line-height:1.6;-webkit-font-smoothing:antialiased;}
+body{font-family:"Montserrat","Helvetica Neue",Arial,sans-serif;background:var(--cream);color:var(--text);line-height:1.6;-webkit-font-smoothing:antialiased;}
 
 /* NAV */
 nav{
@@ -170,7 +170,7 @@ nav{
 .field label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--mid);font-weight:500;}
 .field input,.field select,.field textarea{
   background:#fff;border:1.5px solid var(--lb);border-radius:8px;
-  padding:12px 14px;font-family:"DM Sans",sans-serif;font-size:14px;
+  padding:12px 14px;font-family:"Montserrat","Helvetica Neue",Arial,sans-serif;font-size:14px;
   color:var(--text);outline:none;transition:border-color .2s,box-shadow .2s;
   -webkit-appearance:none;width:100%;
 }
@@ -184,7 +184,7 @@ nav{
   width:100%;margin-top:22px;
   background:var(--dark);color:#fff;border:none;
   padding:15px;border-radius:8px;
-  font-family:"DM Sans",sans-serif;font-size:12px;
+  font-family:"Montserrat","Helvetica Neue",Arial,sans-serif;font-size:12px;
   letter-spacing:.12em;text-transform:uppercase;font-weight:500;
   cursor:pointer;transition:background .2s,transform .15s;
 }
@@ -417,6 +417,198 @@ input, select, textarea {
   .hero-h { font-size: 24px; }
   .brand-lockup h1 { font-size: 1.2rem; }
   .form-tab { font-size: 9px; letter-spacing: .05em; }
+}
+
+
+/* ══════════════════════════════════════════
+   HEARTLAND AGENT — DESIGN SYSTEM
+   Montserrat + Cormorant Garamond
+   Luxury · Modern · Warm Minimalism
+══════════════════════════════════════════ */
+
+/* Base typography */
+body {
+  font-family: 'Montserrat', 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 300;
+  font-size: 16px;
+  line-height: 1.8;
+  color: #1F1F1F;
+}
+
+/* ── Brand lockup ── */
+.brand-lockup h1 {
+  font-family: 'Montserrat', sans-serif !important;
+  font-weight: 300 !important;
+  letter-spacing: 0.28em !important;
+  font-size: clamp(1.8rem, 5vw, 3rem) !important;
+  color: #1F1F1F !important;
+  line-height: 1.0 !important;
+}
+.brand-small {
+  font-family: 'Montserrat', sans-serif !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.55em !important;
+  font-size: 12px !important;
+  color: #666666 !important;
+}
+
+/* ── Headlines (Cormorant Garamond) ── */
+.hero-h {
+  font-family: 'Cormorant Garamond', Georgia, serif !important;
+  font-weight: 400 !important;
+  font-size: clamp(36px, 6vw, 58px) !important;
+  line-height: 1.15 !important;
+  color: #1F1F1F !important;
+}
+.section-title, .picker-title, .about-name,
+.form-header-title, .success-title, .c-name,
+.contact-name, .login-card h1, .section-title {
+  font-family: 'Cormorant Garamond', Georgia, serif !important;
+  font-weight: 400 !important;
+}
+
+/* ── Body text ── */
+.hero-sub, .picker-sub, .section-sub,
+.about-body, .cat-desc, .consent-txt {
+  font-family: 'Montserrat', sans-serif !important;
+  font-weight: 300 !important;
+  font-size: 15px !important;
+  line-height: 1.85 !important;
+  color: #666666 !important;
+}
+
+/* ── Labels (Montserrat 500) ── */
+.section-eyebrow, .contact-eyebrow, .about-eyebrow,
+.qr-eyebrow, .field label, .cat-label, .val span,
+.form-tab, .fn, .fb, .fa, .scan-txt,
+.footer-name, .footer-broker, .footer-brokerage,
+.nav-txt .t1, .nav-txt .t2, .nav-txt .t3 {
+  font-family: 'Montserrat', sans-serif !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.15em !important;
+}
+
+/* ── Buttons — pill shape ── */
+.btn-primary, .btn-outline, .submit-btn,
+.nav-cta, .wa-btn {
+  border-radius: 999px !important;
+  font-family: 'Montserrat', sans-serif !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.12em !important;
+  font-size: 12px !important;
+}
+.btn-primary, .submit-btn, .nav-cta {
+  background: #1F1F1F !important;
+}
+.btn-primary:hover, .submit-btn:hover, .nav-cta:hover {
+  background: #B89455 !important;
+}
+.btn-outline {
+  border: 1.5px solid #C9A96E !important;
+  background: transparent !important;
+  color: #1F1F1F !important;
+}
+.btn-outline:hover {
+  background: #1F1F1F !important;
+  color: #FFFFFF !important;
+  border-color: #1F1F1F !important;
+}
+
+/* ── Form tabs — pill ── */
+.form-tabs {
+  border-radius: 999px !important;
+  padding: 4px !important;
+  background: #F3F0EC !important;
+  border: 1.5px solid #E4DFD8 !important;
+}
+.form-tab {
+  border-radius: 999px !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.12em !important;
+}
+.form-tab.active {
+  background: #1F1F1F !important;
+  border-radius: 999px !important;
+}
+
+/* ── Form fields ── */
+.field input, .field select, .field textarea {
+  font-family: 'Montserrat', sans-serif !important;
+  font-weight: 300 !important;
+  font-size: 14px !important;
+  border-radius: 10px !important;
+  border-color: #E4DFD8 !important;
+  background: #FFFFFF !important;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: #C9A96E !important;
+  box-shadow: 0 0 0 3px rgba(201,169,110,0.1) !important;
+}
+
+/* ── Icons — gold accent ── */
+.val svg { stroke: #C9A96E !important; }
+.val span { color: #666666 !important; font-size: 7.5px !important; }
+.icon-strip-light .icon-cell svg { stroke: #C9A96E !important; }
+.icon-strip-dark .icon-cell svg { stroke: rgba(201,169,110,0.7) !important; }
+.c-ico { color: #C9A96E !important; }
+
+/* ── Category cards ── */
+.cat-card {
+  border-radius: 16px !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,.05) !important;
+  border-color: #E4DFD8 !important;
+}
+.cat-card:hover {
+  box-shadow: 0 20px 60px rgba(0,0,0,.08) !important;
+  border-color: rgba(201,169,110,0.4) !important;
+}
+.cat-card.selected {
+  box-shadow: 0 20px 60px rgba(0,0,0,.08) !important;
+  border-color: #C9A96E !important;
+}
+.cat-icon {
+  background: #F3F0EC !important;
+  border: 1px solid #E4DFD8 !important;
+}
+.cat-card.selected .cat-icon {
+  background: rgba(201,169,110,0.1) !important;
+  border-color: rgba(201,169,110,0.3) !important;
+}
+
+/* ── Consent block ── */
+.consent-wrap {
+  border-radius: 10px !important;
+  border-color: #E4DFD8 !important;
+  background: #FAF8F6 !important;
+}
+.consent-wrap:has(input:checked) {
+  border-color: #C9A96E !important;
+  background: rgba(201,169,110,0.06) !important;
+}
+
+/* ── Premium shadows ── */
+.hanger, nav {
+  box-shadow: 0 10px 30px rgba(0,0,0,.05);
+}
+.about-img {
+  box-shadow: 0 20px 60px rgba(0,0,0,.08) !important;
+}
+
+/* ── Section spacing ── */
+.hero { padding: 88px 40px 80px !important; }
+.picker { max-width: 720px !important; padding: 80px 32px 0 !important; }
+.form-wrap { max-width: 720px !important; padding: 0 32px 88px !important; }
+.about { padding: 88px 32px !important; }
+
+@media(max-width:768px) {
+  .hero { padding: 56px 24px 56px !important; }
+  .picker { padding: 56px 20px 0 !important; }
+  .form-wrap { padding: 0 20px 64px !important; }
+  .about { padding: 56px 20px !important; }
+  .hero-h { font-size: clamp(32px, 8vw, 44px) !important; }
+  .brand-lockup h1 { font-size: clamp(1.4rem, 6vw, 2rem) !important; }
+  .btn-primary, .btn-outline { padding: 15px 28px !important; }
 }
 
 </style>
