@@ -724,6 +724,19 @@ body { font-size: 17px !important; }
   .c-detail   { font-size: 13px !important; }
 }
 
+
+/* ── Equal height category cards ── */
+@media(max-width:768px){
+  .cat-grid{
+    align-items:stretch !important;
+    grid-auto-rows:1fr !important;
+  }
+  .cat-card{
+    height:100% !important;
+    align-content:start !important;
+  }
+}
+
 </style>
 </head>
 <body>
