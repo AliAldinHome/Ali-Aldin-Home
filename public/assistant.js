@@ -32,6 +32,7 @@ var css = ''
 +'#hl-send{width:44px;height:44px;border-radius:50%;background:#1F1F1F;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}'
 +'#hl-send:hover{background:#B89455;}'
 +'#hl-foot{text-align:center;font-family:Montserrat,sans-serif;font-size:8px;letter-spacing:.14em;color:#999;text-transform:uppercase;padding:7px;background:#F7F5F3;}'
++'#hl-tip{position:fixed;bottom:30px;right:92px;background:#1F1F1F;color:#fff;font-family:Montserrat,sans-serif;font-size:13px;font-weight:400;padding:11px 16px;border-radius:14px;border-bottom-right-radius:4px;box-shadow:0 8px 24px rgba(0,0,0,.2);z-index:99997;max-width:210px;line-height:1.5;cursor:pointer;animation:hlTipIn .4s ease;}'+'#hl-tip::after{content:"";position:absolute;right:-7px;bottom:10px;border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:8px solid #1F1F1F;}'+'#hl-tip .x{position:absolute;top:-7px;right:-7px;width:20px;height:20px;background:#C9A96E;border-radius:50%;color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center;}'+'@keyframes hlTipIn{from{opacity:0;transform:translateX(10px);}to{opacity:1;transform:translateX(0);}}'+'@media(max-width:480px){#hl-tip{max-width:160px;font-size:12px;bottom:30px;right:88px;}}'
 +'@media(max-width:480px){#hl-panel{right:16px;left:16px;width:auto;bottom:88px;height:calc(100vh - 160px);}}';
 
 var st=document.createElement('style');st.textContent=css;document.head.appendChild(st);
@@ -127,7 +128,7 @@ function route(raw){
   if(best){bot(best.a,best.c||HOME_CHIPS);return;}
 
   /* no match → lead */
-  bot('Great question — that one deserves Ali\\u2019s personal answer rather than a canned one. Want me to have him reach out? It takes 20 seconds.',['Yes — have Ali contact me','Ask something else']);
+  bot('Great question — that one deserves Ali\'s personal answer rather than a canned one. Want me to have him reach out? It takes 20 seconds.',['Yes — have Ali contact me','Ask something else']);
 }
 
 function handlePending(raw,t){
@@ -216,9 +217,27 @@ document.getElementById('hl-send').onclick=send;
 input.addEventListener('keydown',function(e){if(e.key==='Enter')send();});
 document.getElementById('hl-close').onclick=function(){panel.classList.remove('open');};
 launch.onclick=function(){
+  var et=document.getElementById('hl-tip');if(et)et.remove();try{localStorage.setItem('hlTipSeen','1');}catch(_){}
   panel.classList.toggle('open');
   if(panel.classList.contains('open')&&!opened){opened=true;
-    bot('Hi! 👋 I\\u2019m the Heartland Assistant. I can answer common Ontario buying & selling questions, calculate your land transfer tax or minimum down payment, and check official Bank of Canada rates. What can I help with?',HOME_CHIPS);}
+    bot('Hi! 👋 I\'m the Heartland Assistant. I can answer common Ontario buying & selling questions, calculate your land transfer tax or minimum down payment, and check official Bank of Canada rates. What can I help with?',HOME_CHIPS);}
   if(panel.classList.contains('open'))input.focus();
 };
+
+/* ── subtle tooltip before first click ── */
+var tipShown=false;
+function showTip(){
+  if(tipShown||localStorage.getItem('hlTipSeen'))return;
+  tipShown=true;
+  var tip=document.createElement('div');
+  tip.id='hl-tip';
+  tip.innerHTML='<span class="x">×</span>Questions about buying or selling? Ask me!';
+  document.body.appendChild(tip);
+  tip.querySelector('.x').onclick=function(e){e.stopPropagation();tip.remove();try{localStorage.setItem('hlTipSeen','1');}catch(_){}};
+  tip.onclick=function(){tip.remove();launch.click();};
+  setTimeout(function(){if(tip.parentNode)tip.style.transition='opacity .4s';},8000);
+  setTimeout(function(){if(tip.parentNode){tip.style.opacity='0';setTimeout(function(){tip.remove();},400);}},8400);
+}
+setTimeout(showTip,2500);
+
 })();
