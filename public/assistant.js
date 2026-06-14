@@ -327,7 +327,7 @@ document.getElementById('hl-close').onclick=function(){panel.classList.remove('o
 var HOME_CHIPS=['💰 Down payment','🏠 Land transfer tax','📋 Closing costs','📈 Current rates','💬 Talk to Ali'];
 
 launch.onclick=function(){
-  var et=document.getElementById('hl-tip');if(et)et.remove();try{localStorage.setItem('hlTipSeen','1');}catch(_){}
+  var et=document.getElementById('hl-tip');if(et)et.remove();
   launch.classList.remove('alert');
   panel.classList.toggle('open');
   if(panel.classList.contains('open')&&!opened){opened=true;
@@ -338,15 +338,15 @@ launch.onclick=function(){
 /* ── tooltip before first open ── */
 var tipShown=false;
 function showTip(){
-  if(tipShown||opened||localStorage.getItem('hlTipSeen'))return;
+  if(tipShown||opened)return;
   tipShown=true;
   var tip=document.createElement('div');tip.id='hl-tip';
-  tip.innerHTML='<span class="x">×</span>Questions about buying or selling? Ask me!';
+  tip.innerHTML='<span class="x">×</span>👋 Click here for quick answers to your real estate questions!';
   document.body.appendChild(tip);
   launch.classList.add('alert');
-  tip.querySelector('.x').onclick=function(e){e.stopPropagation();tip.remove();launch.classList.remove('alert');try{localStorage.setItem('hlTipSeen','1');}catch(_){}};
+  tip.querySelector('.x').onclick=function(e){e.stopPropagation();tip.remove();launch.classList.remove('alert');};
   tip.onclick=function(){tip.remove();launch.click();};
-  setTimeout(function(){if(tip.parentNode){tip.style.transition='opacity .4s';tip.style.opacity='0';setTimeout(function(){tip.remove();},400);}},9000);
+  setTimeout(function(){if(tip.parentNode){tip.style.transition='opacity .4s';tip.style.opacity='0';setTimeout(function(){tip.remove();launch.classList.remove('alert');},400);}},14000);
 }
 setTimeout(showTip,2800);
 })();
