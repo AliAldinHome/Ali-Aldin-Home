@@ -47,7 +47,9 @@ var st=document.createElement('style');st.textContent=css;document.head.appendCh
 /* launch button */
 var launch=document.createElement('button');
 launch.id='hl-launch';launch.setAttribute('aria-label','Open Heartland Assistant');
-launch.innerHTML='<span class="dot"></span><svg width="27" height="27" viewBox="0 0 24 24" fill="none"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="#C9A96E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 14.2c-2.2-1.6-3.4-2.8-3.4-4 0-1 .8-1.6 1.6-1.6.7 0 1.4.5 1.8 1.2.4-.7 1.1-1.2 1.8-1.2.8 0 1.6.6 1.6 1.6 0 1.2-1.2 2.4-3.4 4z" fill="#C9A96E"/></svg>';
+var ICON_CHAT='<span class="dot"></span><svg width="27" height="27" viewBox="0 0 24 24" fill="none"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="#C9A96E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 14.2c-2.2-1.6-3.4-2.8-3.4-4 0-1 .8-1.6 1.6-1.6.7 0 1.4.5 1.8 1.2.4-.7 1.1-1.2 1.8-1.2.8 0 1.6.6 1.6 1.6 0 1.2-1.2 2.4-3.4 4z" fill="#C9A96E"/></svg>';
+var ICON_X='<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="#C9A96E" stroke-width="2.2" stroke-linecap="round"/></svg>';
+launch.innerHTML=ICON_CHAT;
 document.body.appendChild(launch);
 
 var panel=document.createElement('div');
@@ -322,7 +324,7 @@ function doRates(){
 function send(){var v=input.value.trim();if(!v)return;input.value='';user(v);route(v);}
 document.getElementById('hl-send').onclick=send;
 input.addEventListener('keydown',function(e){if(e.key==='Enter')send();});
-document.getElementById('hl-close').onclick=function(){panel.classList.remove('open');};
+document.getElementById('hl-close').onclick=function(){panel.classList.remove('open');launch.innerHTML=ICON_CHAT;};
 
 var HOME_CHIPS=['💰 Down payment','🏠 Land transfer tax','📋 Closing costs','📈 Current rates','💬 Talk to Ali'];
 
@@ -330,9 +332,11 @@ launch.onclick=function(){
   var et=document.getElementById('hl-tip');if(et)et.remove();
   launch.classList.remove('alert');
   panel.classList.toggle('open');
-  if(panel.classList.contains('open')&&!opened){opened=true;
+  var isOpen=panel.classList.contains('open');
+  launch.innerHTML=isOpen?ICON_X:ICON_CHAT;
+  if(isOpen&&!opened){opened=true;
     bot('Hi there! 👋 Ask me anything about buying or selling in Ontario — or tap an option below to get started.',HOME_CHIPS);}
-  if(panel.classList.contains('open'))input.focus();
+  if(isOpen)input.focus();
 };
 
 /* ── tooltip before first open ── */
