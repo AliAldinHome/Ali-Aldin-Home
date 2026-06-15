@@ -2,6 +2,7 @@
 // CASL s.11: unsubscribe must be processed within 10 business days
 // We process instantly. Token-based to prevent scraping.
 
+const { send } = require('../lib/emails');
 const { findByToken, findByEmail, updateContact } = require('../lib/airtable');
 
 module.exports = async (req, res) => {
@@ -38,15 +39,9 @@ module.exports = async (req, res) => {
     });
 
     // Notify Ali
-    const nodemailer = require('nodemailer');
-    const t = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
-    });
-
-    await t.sendMail({
-      from: `"Heartland CRM" <${process.env.GMAIL_USER}>`,
-      to: process.env.GMAIL_USER,
+    await send({
+      to: process.env.ADMIN_EMAIL || 'aaldin.home@gmail.com',
+      from: 'Heartland CRM <aaldin@heartlandagent.ca>',
       subject: `Unsubscribe processed — ${contact.fields?.Name || email}`,
       text: `${contact.fields?.Name || 'A contact'} (${contact.fields?.Email || email}) has unsubscribed from all marketing emails. Processed automatically at ${new Date().toISOString()}.`
     });

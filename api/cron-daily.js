@@ -71,17 +71,12 @@ module.exports = async (req, res) => {
     // ── Summary notification to Ali (only if something was sent) ─────────────
     const total = results.birthdays + results.anniversaries + results.followUps;
     if (total > 0) {
-      const nodemailer = require('nodemailer');
-      const t = nodemailer.createTransport({
-        service: 'gmail',
-        auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
-      });
-      await t.sendMail({
-        from: `"Heartland CRM" <${process.env.GMAIL_USER}>`,
-        to: process.env.GMAIL_USER,
-        subject: `CRM Daily Summary — ${total} emails sent`,
-        text: `Daily automation summary:\n\n🎂 Birthdays: ${results.birthdays}\n🏡 Anniversaries: ${results.anniversaries}\n📧 Follow-ups: ${results.followUps}\n\n${results.errors.length ? 'Errors:\n' + results.errors.join('\n') : 'No errors.'}`
-      });
+      await send({
+      to: process.env.ADMIN_EMAIL || 'aaldin.home@gmail.com',
+      from: 'Heartland CRM <aaldin@heartlandagent.ca>',
+      subject: `CRM Daily Summary — ${total} emails sent`,
+      text: `Daily automation summary:\n\n🎂 Birthdays: ${results.birthdays}\n🏡 Anniversaries: ${results.anniversaries}\n📧 Follow-ups: ${results.followUps}\n\n${results.errors.length ? 'Errors:\n' + results.errors.join('\n') : 'No errors.'}`
+    });
     }
 
     return res.status(200).json({ success: true, ...results });

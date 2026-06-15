@@ -53,14 +53,9 @@ module.exports = async (req, res) => {
     }
 
     // Notify Ali of send summary
-    const nodemailer = require('nodemailer');
-    const t = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD }
-    });
-    await t.sendMail({
-      from: `"Heartland CRM" <${process.env.GMAIL_USER}>`,
-      to: process.env.GMAIL_USER,
+    await send({
+      to: process.env.ADMIN_EMAIL || 'aaldin.home@gmail.com',
+      from: 'Heartland CRM <aaldin@heartlandagent.ca>',
       subject: `Market Update Sent — ${sent} of ${contacts.length} delivered`,
       text: `Market update "${subject || headline}" sent.\n\nDelivered: ${sent}/${contacts.length}\nErrors: ${errors.length}\n${errors.length ? '\nFailed:\n' + errors.join('\n') : ''}`
     });

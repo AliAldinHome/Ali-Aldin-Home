@@ -56,8 +56,8 @@ module.exports = async (req, res) => {
     // ── 2. Notify Ali ────────────────────────────────────────────────────────
     const notif = adminNotification(req.body);
     await send({
-      to: process.env.GMAIL_USER,
-      from: `"Heartland CRM" <${process.env.GMAIL_USER}>`,
+      to: process.env.ADMIN_EMAIL || 'aaldin.home@gmail.com',
+      from: 'Heartland CRM <aaldin@heartlandagent.ca>',
       subject: notif.subject,
       html: notif.html
     });
