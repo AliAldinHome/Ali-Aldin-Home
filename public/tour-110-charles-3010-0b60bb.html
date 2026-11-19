@@ -80,6 +80,14 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
 #knob{pointer-events:none}
 #knob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;background:rgba(250,249,246,.92);box-shadow:0 3px 12px rgba(0,0,0,.25)}
 
+/* door open / close icons */
+#doorIcons{position:fixed;inset:0;pointer-events:none;z-index:4}
+.dbtn{position:absolute;left:0;top:0;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 13px 0 10px;border-radius:999px;font-weight:700;font-size:13.5px;color:var(--ink);background:rgba(250,249,246,.92);border:1px solid rgba(255,255,255,.7);box-shadow:0 6px 18px rgba(0,0,0,.28);opacity:0;visibility:hidden;transition:opacity .25s,visibility 0s .25s,background .2s;pointer-events:auto;white-space:nowrap;will-change:transform}
+.dbtn svg{width:19px;height:19px;flex:none;color:var(--acc)}
+.dbtn.on{opacity:1;visibility:visible;transition:opacity .25s,background .2s}
+.dbtn:hover{background:#fff}
+.dbtn:active{background:#eef3f3}
+
 /* dollhouse labels */
 #labels{position:fixed;inset:0;pointer-events:none;z-index:3}
 .lbl{position:absolute;transform:translate(-50%,-50%);padding:6px 10px;border-radius:10px;background:rgba(250,249,246,.9);font-size:13px;line-height:1.25;text-align:center;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.2);transition:opacity .3s}
@@ -171,6 +179,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
   </nav>
 </header>
 
+<div id="doorIcons" aria-label="Doors"></div>
 <div id="roomChip" class="ui glass" hidden></div>
 <div id="hint" class="ui glass" hidden></div>
 
@@ -2028,7 +2037,7 @@ const M = {
   tileFloor: std(0xffffff, 0.28, { map: rep(T_FTILE, 1.52 / 0.6, 2.5 / 0.6), envMapIntensity: 0.9 }),
   frostFront: std(0xffffff, 0.35, { map: rep(T_FROST, 6, 1) }),
   glass: new THREE.MeshStandardMaterial({ color: 0xcfe0e6, metalness: 0.1, roughness: 0.03, transparent: true, opacity: 0.16, envMapIntensity: 2.2, depthWrite: false }),
-  slider: new THREE.MeshStandardMaterial({ color: 0xf2f5f4, roughness: 0.25, metalness: 0.05, transparent: true, opacity: 0.3, envMapIntensity: 0.8, depthWrite: false }),
+  slider: new THREE.MeshStandardMaterial({ color: 0xf2f5f4, roughness: 0.25, metalness: 0.05, transparent: true, opacity: 0.42, envMapIntensity: 0.8, depthWrite: false }),
   frosted: new THREE.MeshStandardMaterial({ color: 0xeef2f1, roughness: 0.55, transparent: true, opacity: 0.78, envMapIntensity: 0.6 }),
   mirror: new THREE.MeshStandardMaterial({ color: 0xe8ecee, metalness: 1, roughness: 0.12, envMapIntensity: 0.95 }),
   facade: new THREE.MeshStandardMaterial({ color: 0xffffff, map: rep(T_FAC, 3, 8), emissive: 0xffffff, emissiveMap: rep(T_FACE, 3, 8), emissiveIntensity: 0, roughness: 0.35, metalness: 0.3 }),
@@ -2120,7 +2129,48 @@ function wall(x1, x2, z1, z2, y1 = 0, y2 = H) {
   aoWall(x1, x2, z1, z2, y1, y2);
   if (y1 < 1.0) { addCol(x1, x2, z1, z2, 'wall'); addBound(x1, x2, z1, z2, y1, y2, 'wall'); }
   if (y1 === 0) box(x1 - 0.012, x2 + 0.012, 0, 0.09, z1 - 0.012, z2 + 0.012, M.trim, { cast: false, r: 0 });
+  OCCLUDERS.push(m);
   return m;
+}
+
+/* ================= operable doors (click / tap to open and close) ================= */
+// Each door is built at its closed position inside its own group, in the coordinates of the current PARENT.
+// A part either swings about a hinge (at = hinge point, swing = [closed, open] angle) or slides (at = [0,0], slide = offset when open).
+const OPS = [], DOOR_MESHES = [], OCCLUDERS = [];
+const _bx = new THREE.Box3();
+function partRect(g) { g.updateWorldMatrix(true, true); _bx.setFromObject(g); return { x1: _bx.min.x, x2: _bx.max.x, z1: _bx.min.z, z2: _bx.max.z, tag: 'door', off: true }; }
+function operable(o) {
+  const d = { id: o.id, name: o.name, kind: o.parts[0].slide ? 'slide' : 'swing', parts: [], t: o.startOpen ? 1 : 0, target: o.startOpen ? 1 : 0, col0: [], col1: [], meshes: [], el: null, los: false };
+  for (const pt of o.parts) {
+    const g = new THREE.Group(); g.position.set(pt.at[0], 0, pt.at[1]); PARENT.add(g);
+    const prev = PARENT; PARENT = g; try { pt.build(); } finally { PARENT = prev; }
+    const bx = g.position.x, bz = g.position.z;
+    const apply = pt.slide ? e => g.position.set(bx + pt.slide[0] * e, 0, bz + pt.slide[1] * e) : e => { g.rotation.y = pt.swing[0] + (pt.swing[1] - pt.swing[0]) * e; };
+    d.parts.push({ g, apply });
+    g.traverse(m => { if (m.isMesh) { m.userData.op = d; d.meshes.push(m); DOOR_MESHES.push(m); } });
+  }
+  d.apply = e => d.parts.forEach(pt => pt.apply(e));
+  if (o.collide !== false) {
+    d.apply(0); d.col0 = d.parts.map(pt => partRect(pt.g));
+    d.apply(1); d.col1 = d.parts.map(pt => partRect(pt.g));
+    colliders.push(...d.col0, ...d.col1);
+  }
+  PARENT.updateWorldMatrix(true, false);
+  d.anchor = new THREE.Vector3(...o.anchor).applyMatrix4(PARENT.matrixWorld);
+  d.apply(d.t); syncDoorCols(d);
+  OPS.push(d); return d;
+}
+function syncDoorCols(d) { const open = d.target > 0.5; d.col0.forEach(c => (c.off = open)); d.col1.forEach(c => (c.off = !open)); }
+function doorById(id) { return OPS.find(d => d.id === id); }
+function setDoor(d, open) { if (typeof d === 'string') d = doorById(d); if (!d) return; d.target = open ? 1 : 0; syncDoorCols(d); }
+function toggleDoor(d) { setDoor(d, d.target < 0.5); }
+// lever handle on a round rose, on both faces of a leaf (leaf faces at x = x0 and x = x1, lever pointing toward +z or -z)
+function lever(x0, x1, y, z, dir) {
+  for (const [xf, s] of [[x0, -1], [x1, 1]]) {
+    const rose = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.012, 20), M.chrome); rose.rotation.z = Math.PI / 2; rose.position.set(xf + s * 0.006, y, z); PARENT.add(rose);
+    box(Math.min(xf + s * 0.012, xf + s * 0.05), Math.max(xf + s * 0.012, xf + s * 0.05), y - 0.008, y + 0.008, z - 0.008, z + 0.008, M.chrome, { r: 0 });
+    const zA = z, zB = z + dir * 0.115; box(Math.min(xf + s * 0.04, xf + s * 0.058), Math.max(xf + s * 0.04, xf + s * 0.058), y - 0.009, y + 0.009, Math.min(zA, zB), Math.max(zA, zB), M.chrome, { r: 0.004 });
+  }
 }
 
 /* ================= plan data (world metres) =================
@@ -2130,8 +2180,8 @@ const ROOMS = [
   { id: 'bed', name: 'Primary bedroom', x1: 0.51, x2: 3.50, z1: 3.65, z2: 6.08, listed: { a: 2.99, b: 2.43, ft: '7.97 × 9.81 ft', sqft: 78 } },
   { id: 'hall', name: 'Foyer & hall', x1: 3.62, x2: 4.87, z1: 3.53, z2: 8.70 },
   { id: 'bath', name: '4-piece bath', x1: 1.98, x2: 3.50, z1: 6.20, z2: 8.70 },
-  { id: 'nook', name: 'Desk nook', x1: 4.87, x2: 5.38, z1: 3.65, z2: 4.85 },
-  { id: 'laundry', name: 'Laundry', x1: 4.99, x2: 5.66, z1: 6.30, z2: 7.15 },
+  { id: 'nook', name: 'Desk nook', x1: 4.87, x2: 5.38, z1: 5.05, z2: 6.25 },
+  { id: 'laundry', name: 'Laundry', x1: 4.99, x2: 5.66, z1: 7.74, z2: 8.59 },
   { id: 'balcony', name: 'Balcony', x1: 0, x2: 5.49, z1: -1.55, z2: -0.10 }
 ];
 const DOORS = [
@@ -2140,8 +2190,9 @@ const DOORS = [
   { name: 'Bedroom corner slider, living side', w: 3.62 - 2.22 },
   { name: 'Bedroom corner slider, hall side', w: 4.85 - 3.65 },
   { name: 'Bedroom double closet', w: 6.00 - 4.40 },
-  { name: 'Laundry bifold', w: 7.15 - 6.30 },
-  { name: 'Coat closet', w: 8.63 - 7.95 },
+  { name: 'Laundry double doors', w: 8.59 - 7.74 },
+  { name: 'Hall closet', w: 7.67 - 6.39 },
+  { name: 'Pantry', w: 4.975 - 4.085 },
   { name: 'Balcony slider (opening)', w: 1.67 - 0.83 }
 ];
 function sizeLine(id) {
@@ -2163,7 +2214,7 @@ function rectsGeo(rects, scale, y) {
   return g;
 }
 M.floor.map = rep(T_LAM, 1, 1);
-const FLOOR_PLAN = [[-0.05, 5.55, -0.05, 3.6], [0.55, 1.95, 3.5, 8.75], [1.95, 5.55, 3.6, 6.14], [0.05, 0.65, 3.6, 4.92], [-0.2, 0.65, 6.25, 7.2], [-0.25, 0.65, 7.9, 8.72]];
+const FLOOR_PLAN = [[-0.05, 5.55, -0.05, 3.6], [0.55, 1.95, 3.5, 8.75], [1.95, 5.55, 3.6, 6.14], [0.05, 0.65, 5.0, 6.32], [-0.2, 0.65, 7.68, 8.72], [-0.2, 0.65, 6.32, 7.68]];
 FLOOR_WORLD = FLOOR_PLAN.map(([a, b, c, d]) => [5.49 - b, 5.49 - a, c, d]).concat([[1.98, 3.50, 6.2, 8.7], [0, 5.49, -1.55, -0.1]]);
 const floor = new THREE.Mesh(rectsGeo(FLOOR_PLAN, 1.2, 0), M.floor);
 floor.receiveShadow = true; PARENT.add(floor);
@@ -2171,8 +2222,7 @@ const ceilMesh = plane(2.975, H, 4.35, 6.55, 9.0, 'down', M.ceil, { cast: true }
 ceilMesh.castShadow = true;
 
 // walls in plan coordinates (mirrored into the world by HOME)
-wall(-0.20, 0, -0.10, 3.53);                 // kitchen wall (exterior)
-wall(-0.20, 0.62, 3.53, 3.65);               // kitchen end / pantry
+wall(-0.20, 0, -0.10, 5.05);                 // kitchen wall (exterior), running behind the pantry
 wall(-0.23, 0.50, 8.70, 8.82);               // front wall across the coat closet
 wall(0.50, 0.92, 8.70, 8.82); wall(0.92, 1.83, 8.70, 8.82, DOOR_H, H); wall(1.83, 1.87, 8.70, 8.82); // front wall with entry door
 wall(3.27, 5.49, 3.53, 3.65);                // living | bedroom: solid part; open from here to the hall corner (no corner post)
@@ -2184,15 +2234,24 @@ wall(4.98, 5.49, 3.65, 4.40); wall(4.98, 5.49, 6.00, 6.08); wall(4.98, 5.10, 4.4
 // hall-side closets: built on the original east side, flipped across the hall centre-line onto the kitchen side
 const HALLSIDE = subGroup(-1, 2.49, 0), XF_HALLSIDE = (x, z) => XF_HOME(2.49 - x, z);
 within(HALLSIDE, XF_HALLSIDE, () => {
-  wall(1.87, 1.99, 3.65, 4.85, 2.30, H);     // nook soffit
-  wall(1.87, 2.38, 4.85, 4.97);              // nook end
-  wall(2.38, 2.50, 3.65, 4.97);              // nook back
-  wall(1.87, 1.99, 4.97, 6.30); wall(1.87, 1.99, 6.30, 7.15, DOOR_H, H); wall(1.87, 1.99, 7.15, 7.95); wall(1.87, 1.99, 7.95, 8.63, DOOR_H, H); wall(1.87, 1.99, 8.63, 8.70);
-  box(1.99, 2.78, 0, H, 4.97, 6.18, M.wall);   // tall closet body
-  for (const [z1, z2] of [[4.99, 5.62], [5.64, 6.27]]) { box(1.845, 1.87, 0.02, 2.3, z1, z2, M.trim); box(1.835, 1.845, 0.95, 1.35, z1 + (z1 < 5.6 ? 0.56 : 0.03), z1 + (z1 < 5.6 ? 0.58 : 0.05), M.chrome); }
-  wall(1.99, 2.78, 6.18, 6.30); wall(2.66, 2.78, 6.30, 7.15); wall(1.99, 2.78, 7.15, 7.27); // laundry recess
-  box(1.99, 2.72, 0, H, 7.27, 7.83, M.wall);   // solid between laundry and coat closet
-  wall(1.99, 2.72, 7.83, 7.95); wall(2.60, 2.72, 7.95, 8.70); // coat closet, right inside the front door
+  // kitchen side of the hall, from the kitchen to the front door: pantry (built with the kitchen), desk nook, tall hall closet, laundry
+  wall(1.87, 1.99, 5.05, 6.25, 2.30, H);     // nook soffit
+  wall(1.87, 2.38, 6.25, 6.37);              // nook end
+  wall(2.38, 2.50, 5.05, 6.37);              // nook back
+  wall(1.87, 1.99, 6.37, 6.39); wall(1.87, 1.99, 6.39, 7.67, 2.30, H); wall(1.87, 1.99, 7.67, 7.74); wall(1.87, 1.99, 7.74, 8.59, 2.30, H); wall(1.87, 1.99, 8.59, 8.70);
+  addBound(1.87, 1.99, 6.37, 8.59, 0, 2.30, 'closet');   // closet + laundry fronts still count as the hall wall when measuring
+  // tall hall closet: hollow, with shelves, behind two flat doors with vertical pulls
+  wall(2.66, 2.78, 6.37, 7.58); box(2.50, 2.78, 0, H, 6.25, 6.37, M.wall); box(1.99, 2.66, 2.30, H, 6.37, 7.58, M.wall);
+  for (const y of [0.42, 0.84, 1.26, 1.68, 2.06]) box(1.99, 2.64, y, y + 0.02, 6.37, 7.58, M.white, { cast: false });
+  for (const [y, z1, z2, m] of [[0.44, 6.45, 6.85, M.greyFab], [0.44, 7.1, 7.5, M.fabric], [0.86, 6.45, 7.0, M.fabric], [1.28, 6.5, 6.9, M.navy], [1.28, 7.02, 7.48, M.white], [1.7, 6.6, 7.3, M.greyFab]])
+    box(2.15, 2.55, y, y + 0.22, z1, z2, m, { r: 0.02 });
+  addCol(1.95, 2.66, 6.37, 7.58, 'closet');
+  operable({ id: 'linen', name: 'Hall closet', anchor: [1.80, 1.15, 7.03], parts: [
+    { at: [1.845, 6.39], swing: [0, -Math.PI / 2], build() { box(0, 0.025, 0.02, 2.3, 0, 0.63, M.trim); box(-0.01, 0, 0.95, 1.35, 0.56, 0.58, M.chrome); } },
+    { at: [1.845, 7.67], swing: [0, Math.PI / 2], build() { box(0, 0.025, 0.02, 2.3, -0.63, 0, M.trim); box(-0.01, 0, 0.95, 1.35, -0.60, -0.58, M.chrome); } }
+  ] });
+  wall(1.99, 2.78, 7.58, 7.70);              // hall closet | laundry
+  wall(2.66, 2.78, 7.70, 8.70);              // laundry back
 });
 // bath: built at its original spot, then moved (and turned) to the west side of the hall, behind the bedroom
 const BATH = subGroup(-1, 2.49, 2.55), XF_BATH = (x, z) => XF_HOME(2.49 - x, z + 2.55);
@@ -2219,10 +2278,12 @@ within(BATH, XF_BATH, () => {
     addCol(a, b, zA, zB, 'wall'); addBound(a, b, zA, zB, 0, H, 'window');
   }
   // operable slider panel, slid open behind the fixed panel (outer track)
-  const g2 = box(1.70, 2.60, 0.035, 2.48, -0.095, -0.08, M.glass, { cast: false, recv: false }); g2.renderOrder = 2;
-  box(1.66, 1.70, 0.035, 2.48, -0.098, -0.077, M.frame); box(2.60, 2.64, 0.035, 2.48, -0.098, -0.077, M.frame);
-  box(1.70, 2.60, 0.035, 0.08, -0.098, -0.077, M.frame); box(1.70, 2.60, 2.43, 2.48, -0.098, -0.077, M.frame);
-  box(1.725, 1.745, 0.9, 1.25, -0.04, -0.03, M.chrome);
+  operable({ id: 'balcony', name: 'Balcony door', startOpen: true, anchor: [1.25, 1.15, 0.02], parts: [{ at: [0, 0], slide: [0.87, 0], build() {
+    const g2 = box(0.83, 1.73, 0.035, 2.48, -0.095, -0.08, M.glass, { cast: false, recv: false }); g2.renderOrder = 2;
+    box(0.79, 0.83, 0.035, 2.48, -0.098, -0.077, M.frame); box(1.73, 1.77, 0.035, 2.48, -0.098, -0.077, M.frame);
+    box(0.83, 1.73, 0.035, 0.08, -0.098, -0.077, M.frame); box(0.83, 1.73, 2.43, 2.48, -0.098, -0.077, M.frame);
+    box(0.855, 0.875, 0.9, 1.25, -0.04, -0.03, M.chrome);
+  } }] });
 })();
 (function balcony() {
   box(-0.12, 5.69, -0.22, -0.005, -1.62, -0.10, M.concrete);
@@ -2260,21 +2321,35 @@ ROUND = 0.007;
   // base run
   box(0, 0.55, 0, 0.1, 0.95, 2.75, M.black, { cast: false });
   box(0, 0.6, 0.1, 0.88, 0.95, 1.55, M.steel);                       // dishwasher
-  box(0, 0.6, 0.1, 0.88, 1.55, 2.75, M.gloss);                       // sink base + drawers
+  // sink base + drawers (lowered under the basin)
+  box(0, 0.6, 0.1, 0.88, 1.55, 1.72, M.gloss, { r: 0 }); box(0, 0.6, 0.1, 0.88, 2.22, 2.75, M.gloss, { r: 0 });
+  box(0, 0.6, 0.1, 0.68, 1.72, 2.22, M.gloss, { r: 0 }); box(0.5, 0.6, 0.68, 0.88, 1.72, 2.22, M.gloss, { r: 0 });
   for (const z of [2.15, 2.75]) box(0.6, 0.603, 0.12, 0.86, z - 0.004, z + 0.004, M.black, { cast: false });
   for (const y of [0.36, 0.62]) box(0.6, 0.603, y - 0.003, y + 0.003, 2.15, 2.75, M.black, { cast: false });
-  box(0, 0.64, 0.88, 0.92, 0.95, 2.75, M.quartz);
-  box(0.12, 0.5, 0.92, 0.925, 1.72, 2.22, M.sink, { cast: false });
-  cyl(0.08, 1.97, 0.92, 1.24, 0.014, M.chrome, 12);
-  const sp = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.012, 8, 20, Math.PI), M.chrome); sp.position.set(0.18, 1.24, 1.97); sp.rotation.y = Math.PI / 2; PARENT.add(sp);
+  // quartz counter with an opening for the undermount sink
+  box(0, 0.64, 0.88, 0.92, 0.95, 1.72, M.quartz, { r: 0 }); box(0, 0.64, 0.88, 0.92, 2.22, 2.75, M.quartz, { r: 0 });
+  box(0, 0.12, 0.88, 0.92, 1.72, 2.22, M.quartz, { r: 0 }); box(0.5, 0.64, 0.88, 0.92, 1.72, 2.22, M.quartz, { r: 0 });
+  // stainless undermount basin, 20 cm deep, with a drain
+  box(0.12, 0.5, 0.70, 0.71, 1.72, 2.22, M.sink, { r: 0 });
+  box(0.12, 0.126, 0.70, 0.92, 1.72, 2.22, M.sink, { r: 0 }); box(0.494, 0.5, 0.70, 0.92, 1.72, 2.22, M.sink, { r: 0 });
+  box(0.12, 0.5, 0.70, 0.92, 1.72, 1.726, M.sink, { r: 0 }); box(0.12, 0.5, 0.70, 0.92, 2.214, 2.22, M.sink, { r: 0 });
+  cyl(0.33, 2.02, 0.71, 0.714, 0.038, M.chrome, 24); cyl(0.33, 2.02, 0.712, 0.716, 0.024, M.black, 18);
+  // single-lever chrome faucet behind the sink: short body, curved spout reaching over the basin
+  cyl(0.075, 1.97, 0.92, 0.932, 0.03, M.chrome, 24);
+  cyl(0.075, 1.97, 0.932, 1.10, 0.021, M.chrome, 20, 0.024);
+  const spoutPath = new THREE.CatmullRomCurve3([[0.075, 1.07], [0.08, 1.16], [0.12, 1.215], [0.19, 1.225], [0.245, 1.19], [0.262, 1.13]].map(([x, y]) => new THREE.Vector3(x, y, 1.97)));
+  const spout = new THREE.Mesh(new THREE.TubeGeometry(spoutPath, 40, 0.0125, 12, false), M.chrome); spout.castShadow = true; PARENT.add(spout);
+  cyl(0.262, 1.97, 1.10, 1.135, 0.016, M.chrome, 16);
+  cyl(0.262, 1.97, 1.097, 1.10, 0.012, M.black, 12);
+  const lev = box(0.07, 0.085, 1.075, 1.09, 1.99, 2.075, M.chrome, { r: 0.004 }); lev.rotation.x = -0.35;
   // range
   box(0, 0.66, 0, 0.92, 2.75, 3.51, M.steel);
   box(0.02, 0.64, 0.92, 0.935, 2.77, 3.49, M.blackGlass);
   box(0.661, 0.666, 0.22, 0.62, 2.86, 3.40, M.blackGlass, { cast: false });
   box(0, 0.09, 0.935, 1.08, 2.75, 3.51, M.steel);
   // uppers with frosted-glass fronts, hood, bulkhead
-  box(0, 0.32, 1.42, 2.36, 0.95, 3.51, M.white, { r: 0 });
-  { const cols = 6, z0 = 0.95, z1 = 3.51, cw = (z1 - z0) / cols;
+  box(0, 0.32, 1.42, 2.36, 0.95, 4.05, M.white, { r: 0 });
+  { const cols = 7, z0 = 0.95, z1 = 4.05, cw = (z1 - z0) / cols;
     for (let i = 0; i < cols; i++) {
       const a = z0 + i * cw + 0.004, b = z0 + (i + 1) * cw - 0.004;
       box(0.32, 0.342, 1.43, 1.86, a, b, M.frostGlass, { r: 0.003 });
@@ -2282,14 +2357,32 @@ ROUND = 0.007;
     }
   }
   box(0, 0.48, 1.35, 1.43, 2.78, 3.48, M.steel);
-  box(0, 0.36, 2.36, H, 0.08, 3.51, M.wall, { r: 0 });
-  plane(0.004, 1.17, 2.23, 2.56, 0.5, '+x', new THREE.MeshStandardMaterial({ map: rep(T_MOS, 2.56 / 0.4, 0.5 / 0.4), roughness: 0.2, envMapIntensity: 0.8 }));
-  box(0.27, 0.32, 1.405, 1.418, 0.97, 3.49, M.under, { cast: false });
+  box(0, 0.36, 2.36, H, 0.08, 4.05, M.wall, { r: 0 });
+  plane(0.004, 1.17, 2.50, 3.10, 0.5, '+x', new THREE.MeshStandardMaterial({ map: rep(T_MOS, 3.10 / 0.4, 0.5 / 0.4), roughness: 0.2, envMapIntensity: 0.8 }));
+  box(0.27, 0.32, 1.405, 1.418, 0.97, 4.03, M.under, { cast: false });
   // counter decor: espresso machine + cutting board (from photos)
   box(0.1, 0.42, 0.92, 1.28, 1.18, 1.42, M.black); box(0.32, 0.43, 1.0, 1.04, 1.24, 1.36, M.chrome);
   box(0.03, 0.06, 0.92, 1.3, 2.42, 2.66, M.oak);
-  addCol(0, 0.75, 0.08, 3.53);
-  blob(0, 0.66, 0.08, 3.51, 0.08, 0.32);
+  // short counter between the range and the pantry, with glass canisters (from photos)
+  box(0, 0.55, 0, 0.1, 3.51, 4.05, M.black, { cast: false, r: 0 });
+  box(0, 0.6, 0.1, 0.88, 3.51, 4.05, M.gloss, { r: 0 });
+  for (const y of [0.36, 0.62]) box(0.6, 0.603, y - 0.003, y + 0.003, 3.53, 4.03, M.black, { cast: false });
+  box(0, 0.64, 0.88, 0.92, 3.51, 4.05, M.quartz, { r: 0 });
+  for (const [z, h] of [[3.64, 0.2], [3.79, 0.24], [3.94, 0.2]]) { cyl(0.13, z, 0.92, 0.92 + h, 0.055, M.glass, 20).renderOrder = 2; cyl(0.13, z, 0.92 + h, 0.935 + h, 0.05, M.chrome, 20); }
+  // tall pantry beside the stove: two flat doors with vertical pulls, shelves inside
+  box(0.02, 0.6, 0, H, 4.05, 4.08, M.trim, { r: 0 }); box(0.02, 0.6, 0, H, 4.98, 5.05, M.trim, { r: 0 });   // sides
+  box(0.02, 0.62, 2.30, H, 4.05, 5.05, M.wall, { r: 0 });                                                  // band above the doors
+  box(0.02, 0.05, 0, 2.30, 4.08, 4.98, M.white, { r: 0 }); box(0.05, 0.6, 0, 0.1, 4.08, 4.98, M.white, { r: 0 });
+  for (const y of [0.5, 0.9, 1.3, 1.7, 2.06]) box(0.05, 0.58, y, y + 0.02, 4.08, 4.98, M.white, { r: 0, cast: false });
+  { const items = [M.navy, M.oak, M.greyFab, M.fabric, M.white, M.leather, M.black, M.steel]; let k = 0;
+    for (const y of [0.1, 0.52, 0.92, 1.32, 1.72]) for (let z = 4.14; z < 4.9; z += 0.15 + ((k * 7) % 5) * 0.02) { const h = 0.12 + ((k * 3) % 5) * 0.04; box(0.1 + ((k * 5) % 3) * 0.06, 0.32 + ((k * 5) % 3) * 0.06, y, y + Math.min(h, 0.36), z, z + 0.1, items[k % items.length], { r: 0.01, cast: false }); k++; } }
+  addCol(0, 0.6, 4.05, 5.05, 'closet'); addBound(0.02, 0.62, 4.05, 5.05, 0, H, 'closet');
+  operable({ id: 'pantry', name: 'Pantry', anchor: [0.66, 1.15, 4.53], parts: [
+    { at: [0.60, 4.085], swing: [0, Math.PI / 2], build() { box(0, 0.025, 0.02, 2.3, 0, 0.44, M.trim); box(0.025, 0.035, 0.95, 1.35, 0.40, 0.42, M.chrome); } },
+    { at: [0.60, 4.975], swing: [0, -Math.PI / 2], build() { box(0, 0.025, 0.02, 2.3, -0.44, 0, M.trim); box(0.025, 0.035, 0.95, 1.35, -0.42, -0.40, M.chrome); } }
+  ] });
+  addCol(0, 0.75, 0.08, 4.05);
+  blob(0, 0.66, 0.08, 4.05, 0.08, 0.32);
 })();
 
 /* ---------- island + pendants + lanterns ---------- */
@@ -2377,23 +2470,33 @@ function lantern(x, z, s) {
   box(2.86, 3.66, 0.62, 0.8, 5.46, 5.6, M.navy, { r: 0.06 });
   addCol(2.49, 4.09, 4.03, 6.08); blob(2.49, 4.09, 4.03, 6.06, 0.1, 0.5);
   // double sliding closet doors on the west wall
-  box(4.975, 5.0, 0, 2.02, 4.42, 5.24, M.trim); box(5.01, 5.035, 0, 2.02, 5.16, 5.98, M.trim);
-  box(4.97, 4.975, 0.85, 1.25, 5.2, 5.22, M.black, { cast: false }); box(5.005, 5.01, 0.85, 1.25, 5.18, 5.2, M.black, { cast: false });
+  operable({ id: 'closetA', name: 'Closet door', collide: false, anchor: [4.93, 1.15, 4.83], parts: [{ at: [0, 0], slide: [0, 0.74], build() {
+    box(4.975, 5.0, 0, 2.02, 4.42, 5.24, M.trim); box(4.97, 4.975, 0.85, 1.25, 5.2, 5.22, M.black, { cast: false });
+  } }] });
+  operable({ id: 'closetB', name: 'Closet door', collide: false, anchor: [4.93, 1.15, 5.57], parts: [{ at: [0, 0], slide: [0, -0.74], build() {
+    box(5.01, 5.035, 0, 2.02, 5.16, 5.98, M.trim); box(5.005, 5.01, 0.85, 1.25, 5.18, 5.2, M.black, { cast: false });
+  } }] });
+  // closet inside: shelf, rail and hanging clothes
+  box(5.04, 5.47, 1.80, 1.82, 4.44, 5.96, M.white, { cast: false }); box(5.25, 5.27, 1.66, 1.68, 4.44, 5.96, M.chrome, { cast: false });
+  { const cm = [M.navy, M.greyFab, M.white, M.fabric, M.leather, M.greyFab]; for (let i = 0; i < 14; i++) { const z = 4.55 + i * 0.1, l = [0.75, 1.0, 0.7, 0.9, 1.1, 0.8][i % 6]; box(5.08, 5.44, 1.62 - l, 1.62, z - 0.042, z + 0.042, cm[(i * 5) % 6], { r: 0.03, cast: false }); } }
+  for (const [z1, z2, m] of [[4.6, 4.95, M.greyFab], [5.3, 5.62, M.fabric]]) box(5.08, 5.42, 1.82, 2.0, z1, z2, m, { r: 0.02, cast: false });
   for (const [z1, z2] of [[4.42, 4.44], [5.96, 5.98]]) box(4.97, 5.04, 0, 2.02, z1, z2, M.alu);
   addCol(4.96, 5.04, 4.4, 6.0, 'wall'); addBound(4.98, 5.04, 4.4, 6.0, 0, DOOR_H, 'closet');
   // corner sliders: no post at the corner; one frosted panel on each side, running inside the bedroom
   const top = H - 0.05;
-  function slider(x1, x2, z1, z2) {
+  function slider(id, name, x1, x2, z1, z2, slide, startOpen, anchor) {
     const alongX = (x2 - x1) > (z2 - z1);
+    return operable({ id, name, startOpen, anchor, parts: [{ at: [0, 0], slide, build() {
     const p = alongX ? box(x1 + 0.03, x2 - 0.03, 0.03, top - 0.03, z1 + 0.004, z2 - 0.004, M.slider, { cast: false })
                      : box(x1 + 0.004, x2 - 0.004, 0.03, top - 0.03, z1 + 0.03, z2 - 0.03, M.slider, { cast: false });
     p.renderOrder = 2;
     if (alongX) { box(x1, x1 + 0.03, 0.01, top, z1, z2, M.alu); box(x2 - 0.03, x2, 0.01, top, z1, z2, M.alu); box(x1, x2, 0.01, 0.04, z1, z2, M.alu); box(x1, x2, top - 0.03, top, z1, z2, M.alu); }
     else { box(x1, x2, 0.01, top, z1, z1 + 0.03, M.alu); box(x1, x2, 0.01, top, z2 - 0.03, z2, M.alu); box(x1, x2, 0.01, 0.04, z1, z2, M.alu); box(x1, x2, top - 0.03, top, z1, z2, M.alu); }
-    addCol(x1, x2, z1, z2);
+    } }] });
   }
-  slider(3.22, 4.64, 3.655, 3.68);              // living-room side, parked over the solid wall
-  slider(2.0, 2.025, 3.66, 4.91);               // hall side, closed (as in the photo); it parks over the solid wall when open
+  // living-room side: open (parked over the solid wall), as in the photos; hall side: closed, parks over the hall wall when open
+  slider('bedLiving', 'Bedroom sliding door', 2.025, 3.445, 3.655, 3.68, [1.195, 0], true, [2.65, 1.15, 3.6]);
+  slider('bedHall', 'Bedroom sliding door', 2.0, 2.025, 3.66, 4.91, [0, 1.17], false, [1.94, 1.15, 4.25]);
   box(1.87, 4.64, top, H, 3.65, 3.70, M.alu);   // ceiling tracks running to the open corner
   box(1.99, 2.04, top, H, 3.53, 6.05, M.alu);
   // ceiling fixture
@@ -2448,17 +2551,20 @@ within(BATH, XF_BATH, function bath() {
   box(-0.742, -0.735, 1.32, 2.18, 5.769, 5.771, M.black, { cast: false }); box(-0.742, -0.73, 1.45, 1.6, 5.74, 5.75, M.chrome, { cast: false });
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.006, 8, 28), M.chrome); ring.position.set(-0.99, 1.52, 5.43); ring.rotation.y = Math.PI / 2; PARENT.add(ring);
   // door: hinged on the tub side, swung open toward the tub
-  box(-0.3, 0.5, 0, 2.02, 4.60, 4.64, M.trim);
-  box(-0.26, -0.24, 0.95, 1.0, 4.57, 4.67, M.chrome);
-  addCol(-0.3, 0.5, 4.58, 4.66);
+  operable({ id: 'bath', name: 'Bathroom door', anchor: [0.56, 1.15, 5.0], startOpen: true, parts: [{ at: [0.54, 4.61], swing: [0, -Math.PI / 2], build() {
+    box(-0.02, 0.02, 0, 2.02, 0, 0.78, M.trim); lever(-0.02, 0.02, 1.0, 0.71, -1);
+  } }] });
   cyl(-0.26, 4.95, H - 0.04, H, 0.13, M.pot, 24);
 });
 
 /* ---------- hall: entry, desk nook, laundry, closets, bench ---------- */
 (function entry() {
   // entry door (closed), hinged on the bathroom side, lever handle on the hall side
-  box(0.94, 1.81, 0, 2.02, 8.73, 8.77, M.door);
-  box(0.98, 1.1, 0.98, 1.01, 8.695, 8.73, M.chrome); box(1.01, 1.04, 0.94, 1.05, 8.70, 8.73, M.chrome);
+  operable({ id: 'entry', name: 'Front door', anchor: [1.375, 1.15, 8.69], parts: [{ at: [1.81, 8.75], swing: [0, -Math.PI / 2 * 0.96], build() {
+    box(-0.87, 0, 0, 2.02, -0.02, 0.02, M.door);
+    box(-0.83, -0.71, 0.98, 1.01, -0.055, -0.02, M.chrome); box(-0.80, -0.77, 0.94, 1.05, -0.05, -0.02, M.chrome);
+    box(-0.83, -0.71, 0.98, 1.01, 0.02, 0.055, M.chrome); box(-0.80, -0.77, 0.94, 1.05, 0.02, 0.05, M.chrome);
+  } }] });
   box(0.86, 0.92, 0, 2.1, 8.685, 8.70, M.trim); box(1.83, 1.87, 0, 2.1, 8.685, 8.70, M.trim); box(0.86, 1.87, 2.03, 2.1, 8.685, 8.70, M.trim);
   addCol(0.6, 1.9, 8.70, 8.82, 'wall');
   // white bench along the bedroom side of the hall (from photos)
@@ -2466,31 +2572,43 @@ within(BATH, XF_BATH, function bath() {
   addCol(1.49, 1.87, 5.3, 6.3); blob(1.49, 1.87, 5.3, 6.3, 0.06, 0.32);
   for (const z of [4.4, 6.0, 7.4, 8.3]) cyl(1.245, z, H - 0.01, H, 0.06, M.pot, 18);
 })();
+(function corridor() {
+  // the building corridor outside the front door, seen when it is open (evenly lit, so it ignores the sun)
+  const bm = c => new THREE.MeshBasicMaterial({ color: c });
+  const o = { cast: false, recv: false, r: 0 }, keep = m => (OUTSIDE.push(m), m);
+  keep(box(-1.6, 4.4, -0.02, 0.0, 8.82, 10.4, bm(0x4b4039), o));
+  keep(box(-1.6, 4.4, 2.45, 2.5, 8.82, 10.4, bm(0xd8d2c8), o));
+  keep(box(-1.6, 4.4, 0, 2.5, 10.4, 10.5, bm(0xbdb4a7), o));
+  keep(box(-1.7, -1.6, 0, 2.5, 8.82, 10.5, bm(0xb4ab9e), o)); keep(box(4.4, 4.5, 0, 2.5, 8.82, 10.5, bm(0xb4ab9e), o));
+  keep(box(-1.6, 4.4, 0, 0.1, 10.37, 10.4, bm(0x2d2926), o));
+  keep(box(1.7, 2.62, 0, 2.05, 10.36, 10.4, bm(0x3a3d40), o));
+  keep(box(0.6, 1.4, 2.43, 2.45, 9.5, 9.75, bm(0xfff4e2), o));
+})();
 within(HALLSIDE, XF_HALLSIDE, function hallSide() {
   // desk nook: white desk, shelf, monitor, lamp, dark under-desk unit
-  box(1.87, 2.38, 0.72, 0.75, 3.66, 4.84, M.white);
-  box(1.94, 2.36, 0, 0.66, 4.24, 4.8, M.black);
-  box(1.87, 2.38, 1.72, 1.75, 3.66, 4.84, M.white);
-  box(2.27, 2.3, 0.93, 1.29, 3.98, 4.58, M.tv); box(2.28, 2.33, 0.75, 0.93, 4.25, 4.31, M.frame); box(2.22, 2.36, 0.75, 0.765, 4.18, 4.38, M.frame);
-  cyl(2.24, 3.82, 0.75, 0.77, 0.06, M.chrome, 14); cyl(2.24, 3.82, 0.77, 1.12, 0.008, M.chrome, 8);
-  const ds = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.1, 18, 1, true), M.shade); ds.position.set(2.18, 1.1, 3.86); ds.rotation.z = 0.5; PARENT.add(ds);
-  addCol(1.87, 2.38, 3.65, 4.85); blob(1.94, 2.36, 4.24, 4.8, 0.05, 0.4);
-  // office chair
-  cyl(1.62, 4.25, 0.42, 0.5, 0.23, M.leather, 20); box(1.41, 1.47, 0.5, 0.95, 4.05, 4.45, M.leather);
-  cyl(1.62, 4.25, 0.08, 0.42, 0.025, M.chrome, 10); cyl(1.62, 4.25, 0.03, 0.08, 0.26, M.frame, 5);
-  addCol(1.38, 1.86, 4.02, 4.48); blob(1.4, 1.84, 4.04, 4.46, 0.06, 0.35);
-  // laundry: top-load washer + compact dryer above, bifold doors folded open
-  box(2.03, 2.64, 0, 0.9, 6.36, 7.08, M.white); box(2.5, 2.64, 0.9, 1.02, 6.36, 7.08, M.white);
-  box(2.1, 2.48, 0.9, 0.905, 6.45, 6.99, M.greyFab, { cast: false });
-  box(2.06, 2.64, 1.1, 1.82, 6.4, 7.04, M.white);
-  const dd = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.02, 32), M.alu); dd.rotation.z = Math.PI / 2; dd.position.set(2.05, 1.44, 6.72); PARENT.add(dd);
-  box(1.99, 2.66, 1.95, 1.98, 6.3, 7.15, M.white);
-  box(1.99, 2.37, 0, 2.0, 6.305, 6.335, M.trim); box(1.99, 2.37, 0, 2.0, 7.115, 7.145, M.trim);
-  addCol(1.99, 2.66, 6.3, 7.15); blob(2.03, 2.64, 6.36, 7.08, 0.05, 0.4);
-  // coat closet: white double doors with lever handles
-  box(1.9, 1.94, 0, 2.02, 7.96, 8.285, M.trim); box(1.9, 1.94, 0, 2.02, 8.295, 8.62, M.trim);
-  box(1.86, 1.9, 1.0, 1.02, 8.18, 8.28, M.chrome); box(1.86, 1.9, 1.0, 1.02, 8.30, 8.40, M.chrome);
-  addCol(1.87, 1.99, 7.95, 8.63, 'wall');
+  box(1.87, 2.38, 0.72, 0.75, 5.06, 6.24, M.white);
+  box(1.94, 2.36, 0, 0.66, 5.64, 6.2, M.black);
+  box(1.87, 2.38, 1.72, 1.75, 5.06, 6.24, M.white);
+  box(2.27, 2.3, 0.93, 1.29, 5.38, 5.98, M.tv); box(2.28, 2.33, 0.75, 0.93, 5.65, 5.71, M.frame); box(2.22, 2.36, 0.75, 0.765, 5.58, 5.78, M.frame);
+  cyl(2.24, 5.22, 0.75, 0.77, 0.06, M.chrome, 14); cyl(2.24, 5.22, 0.77, 1.12, 0.008, M.chrome, 8);
+  const ds = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.1, 18, 1, true), M.shade); ds.position.set(2.18, 1.1, 5.26); ds.rotation.z = 0.5; PARENT.add(ds);
+  addCol(1.87, 2.38, 5.05, 6.25); blob(1.94, 2.36, 5.64, 6.2, 0.05, 0.4);
+  // office chair, pushed in under the desk (beside the under-desk unit) so the hall stays clear
+  cyl(1.98, 5.35, 0.42, 0.5, 0.23, M.leather, 20); box(1.77, 1.83, 0.5, 0.95, 5.15, 5.55, M.leather);
+  cyl(1.98, 5.35, 0.08, 0.42, 0.025, M.chrome, 10); cyl(1.98, 5.35, 0.03, 0.08, 0.26, M.frame, 5);
+  addCol(1.74, 1.87, 5.12, 5.58); blob(1.74, 2.22, 5.12, 5.58, 0.06, 0.35);
+  // laundry, right inside the front door: top-load washer + compact dryer above
+  box(2.03, 2.64, 0, 0.9, 7.80, 8.52, M.white); box(2.5, 2.64, 0.9, 1.02, 7.80, 8.52, M.white);
+  box(2.1, 2.48, 0.9, 0.905, 7.89, 8.43, M.greyFab, { cast: false });
+  box(2.06, 2.64, 1.1, 1.82, 7.84, 8.48, M.white);
+  const dd = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.02, 32), M.alu); dd.rotation.z = Math.PI / 2; dd.position.set(2.05, 1.44, 8.16); PARENT.add(dd);
+  box(1.99, 2.66, 1.95, 1.98, 7.74, 8.59, M.white);
+  addCol(1.99, 2.66, 7.74, 8.59); blob(2.03, 2.64, 7.80, 8.52, 0.05, 0.4);
+  // white double doors with lever handles on round roses, hinged at the outer edges (from the foyer photo)
+  operable({ id: 'laundry', name: 'Laundry doors', anchor: [1.80, 1.15, 8.165], parts: [
+    { at: [1.845, 7.75], swing: [0, -Math.PI / 2], build() { box(0, 0.035, 0.02, 2.3, 0, 0.413, M.trim); lever(0, 0.035, 1.02, 0.36, -1); } },
+    { at: [1.845, 8.58], swing: [0, Math.PI / 2], build() { box(0, 0.035, 0.02, 2.3, -0.413, 0, M.trim); lever(0, 0.035, 1.02, -0.36, 1); } }
+  ] });
 });
 ROUND = 0;
 // LDK pot lights
@@ -2683,6 +2801,7 @@ const R = 0.22;
 function collide(px, pz) {
   for (let it = 0; it < 3; it++) {
     for (const c of colliders) {
+      if (c.off) continue;
       const nx = clamp(px, c.x1, c.x2), nz = clamp(pz, c.z1, c.z2);
       const dx = px - nx, dz = pz - nz, d2 = dx * dx + dz * dz;
       if (d2 >= R * R) continue;
@@ -2737,7 +2856,7 @@ function enterWalk() {
   const w = walkPose(); flyTo(w.p, w.q, 1.4);
   $('bViewTxt').textContent = 'Dollhouse'; $('bView').classList.remove('on');
   $('joy').hidden = !isTouch; $('roomChip').hidden = true; $('roomChip').textContent = '';
-  showHint(isTouch ? 'Left thumb to move · drag anywhere else to look' : 'Drag to look (double-click to lock the mouse, Esc to release) · WASD or arrow keys to move · Shift to hurry');
+  showHint(isTouch ? 'Left thumb to move · drag anywhere else to look · tap a door to open or close it' : 'Drag to look · WASD or arrow keys to move · click a door (or press E) to open or close it');
 }
 function enterDoll(fromTour) {
   if (document.pointerLockElement) document.exitPointerLock();
@@ -2750,6 +2869,78 @@ function enterDoll(fromTour) {
 }
 let hintT = null;
 function showHint(t) { const h = $('hint'); h.textContent = t; h.hidden = false; h.style.opacity = 1; clearTimeout(hintT); hintT = setTimeout(() => { h.style.opacity = 0; setTimeout(() => (h.hidden = true), 700); }, 6500); }
+
+/* ---------- doors: animation, on-screen icons, click / tap ---------- */
+const DOOR_TIME = 0.9;
+let doorsMoving = false;
+function updateDoors(dt) {
+  let moving = false;
+  for (const d of OPS) {
+    if (d.t === d.target) continue;
+    const s = dt / DOOR_TIME;
+    d.t = d.target > d.t ? Math.min(d.target, d.t + s) : Math.max(d.target, d.t - s);
+    d.apply(ease(d.t)); moving = true;
+  }
+  if (moving) { renderer.shadowMap.needsUpdate = true; doorsMoving = true; }
+  else if (doorsMoving) { doorsMoving = false; renderer.shadowMap.needsUpdate = true; envDirty = true; }
+}
+const ICO_SWING = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4.5A1.5 1.5 0 0 1 6.5 3h11A1.5 1.5 0 0 1 19 4.5V21"/><path d="M3 21h18"/><circle cx="15.2" cy="12.5" r="1.1" fill="currentColor" stroke="none"/></svg>';
+const ICO_SLIDE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3.5" width="10" height="17" rx="1.2"/><path d="M17 3.5h3a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1h-3"/><path d="M9 12h9m-3-3 3 3-3 3"/></svg>';
+const doorLayer = $('doorIcons'), _dv = new THREE.Vector3(), _dv2 = new THREE.Vector3(), _dray = new THREE.Raycaster();
+let doorTick = 0;
+function doorIcon(d) {
+  if (d.el) return d.el;
+  const b = document.createElement('button'); b.className = 'dbtn'; b.type = 'button';
+  b.innerHTML = (d.kind === 'slide' ? ICO_SLIDE : ICO_SWING) + '<span></span>';
+  b.addEventListener('pointerdown', e => e.stopPropagation());
+  b.addEventListener('click', e => { e.stopPropagation(); toggleDoor(d); });
+  doorLayer.appendChild(b); d.el = b; return b;
+}
+function doorVisible(d) {
+  const dist = camera.position.distanceTo(d.anchor);
+  _dray.set(camera.position, _dv2.copy(d.anchor).sub(camera.position).normalize()); _dray.far = dist - 0.06;
+  const hits = _dray.intersectObjects(OCCLUDERS, false);
+  if (hits.length) return false;
+  const dh = _dray.intersectObjects(DOOR_MESHES, false);
+  return !dh.some(h => h.object.userData.op !== d);
+}
+function updateDoorIcons() {
+  const show = mode === 'walk' && !fly;
+  doorTick++;
+  for (const d of OPS) {
+    let on = false;
+    if (show && camera.position.distanceTo(d.anchor) < 3.4) {
+      _dv.copy(d.anchor).project(camera);
+      if (_dv.z < 1 && Math.abs(_dv.x) < 0.92 && Math.abs(_dv.y) < 1.6) {
+        if (doorTick % 6 === 0 || !d.el) d.los = doorVisible(d);
+        on = d.los;
+        if (on) {
+          const el = doorIcon(d);
+          // keep the icon on screen and clear of the top bar and the bottom dock, even when standing right at the door
+          const sy = clamp((1 - _dv.y) / 2 * innerHeight, 104, innerHeight - (isTouch ? 190 : 150));
+          const sx = clamp((_dv.x + 1) / 2 * innerWidth, 58, innerWidth - 58);
+          el.style.transform = `translate(${sx.toFixed(1)}px,${sy.toFixed(1)}px) translate(-50%,-50%)`;
+          const txt = d.target > 0.5 ? 'Close' : 'Open';
+          if (el.dataset.t !== txt) { el.dataset.t = txt; el.lastChild.textContent = txt; el.setAttribute('aria-label', `${txt} ${d.name.toLowerCase()}`); el.title = `${txt} ${d.name.toLowerCase()}`; }
+        }
+      }
+    }
+    if (d.el) d.el.classList.toggle('on', on);
+  }
+}
+// click or tap on a door itself (walk or dollhouse); short presses only, so dragging to look still works
+const _dp = new THREE.Vector2();
+function doorAt(cx, cy) {
+  if (document.pointerLockElement) _dp.set(0, 0); else _dp.set(cx / innerWidth * 2 - 1, -(cy / innerHeight) * 2 + 1);
+  _dray.setFromCamera(_dp, camera); _dray.far = mode === 'walk' ? 4.5 : 60;
+  const h = _dray.intersectObjects(DOOR_MESHES.concat(OCCLUDERS), false)[0];
+  return h && h.object.userData.op ? h.object.userData.op : null;
+}
+function nearestIconDoor() {
+  let best = null, bd = Infinity;
+  for (const d of OPS) if (d.el && d.el.classList.contains('on')) { _dv.copy(d.anchor).project(camera); const k = Math.hypot(_dv.x, _dv.y); if (k < bd) { bd = k; best = d; } }
+  return best;
+}
 
 // fixed on-screen joystick (phones/tablets): touch it and drag to walk; it stays where it is
 const joyEl = $('joy'), JOY_R = 46; knob = $('knob');
@@ -2794,12 +2985,26 @@ cv.addEventListener('pointermove', e => {
 });
 const endPtr = e => { if (e.pointerId === look.id) look.id = null; dragging = false; };
 cv.addEventListener('pointerup', endPtr); cv.addEventListener('pointercancel', endPtr);
+const tap = { x: 0, y: 0, t: 0, id: null };
+cv.addEventListener('pointerdown', e => { tap.x = e.clientX; tap.y = e.clientY; tap.t = performance.now(); tap.id = e.pointerId; }, true);
+cv.addEventListener('pointerup', e => {
+  if (e.pointerId !== tap.id || (mode !== 'walk' && mode !== 'doll') || fly) return;
+  if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 7 || performance.now() - tap.t > 450) return;
+  const d = doorAt(e.clientX, e.clientY); if (d) toggleDoor(d);
+});
+let hoverT = 0;
+cv.addEventListener('pointermove', e => {
+  if (e.pointerType !== 'mouse' || dragging || (mode !== 'walk' && mode !== 'doll')) return;
+  const now = performance.now(); if (now - hoverT < 90) return; hoverT = now;
+  cv.style.cursor = doorAt(e.clientX, e.clientY) ? 'pointer' : '';
+});
 cv.addEventListener('dblclick', () => { if (mode === 'walk' && !isTouch) { try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} } });
 addEventListener('keydown', e => {
   if (e.target && e.target.tagName === 'INPUT') return;
   keys.add(e.code);
   if (mode === 'walk' && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   if (e.code === 'Escape' && $('contact') && !$('contact').hidden) closeContact();
+  if (e.code === 'KeyE' && mode === 'walk' && !e.repeat) { const d = nearestIconDoor(); if (d) toggleDoor(d); }
 });
 addEventListener('keyup', e => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
@@ -2896,16 +3101,20 @@ addEventListener('keydown', e => {
 
 /* ================= guided tour ================= */
 const STOPS = [
-  { name: 'Foyer', pos: [4.12, 8.35], look: [4.2, 1.5, 3.0], size: null, point: 'Coat closet and bench right at the door', photos: ['1530'] },
+  { name: 'Foyer', pos: [4.12, 8.35], look: [4.2, 1.5, 3.0], size: null, point: 'In-suite laundry and a bench right inside the door', photos: ['1530'] },
   { name: '4-piece bath', pos: [3.95, 7.6], look: [1.98, 1.0, 7.62], size: null, point: 'Soaker tub with sliding glass doors', photos: ['1533', '1534'] },
-  { name: 'Laundry & desk nook', pos: [4.05, 7.2], look: [5.2, 1.0, 5.35], size: null, point: 'In-suite laundry, plus a built-in work-from-home desk', photos: ['1544', '1535'] },
+  { name: 'Laundry & desk nook', pos: [3.85, 8.12], look: [5.3, 1.0, 8.16], size: null, point: 'In-suite laundry, plus a built-in work-from-home desk', photos: ['1544', '1535'] },
   { name: 'Kitchen', pos: [3.62, 3.08], look: [5.29, 1.05, 1.35], size: 'ldk', point: 'Modern kitchen with stainless steel appliances', photos: ['1540', '1541'] },
   { name: 'Dining', pos: [2.71, 0.45], look: [4.29, 1.0, 2.45], size: 'ldk', point: 'Centre island for dining and prep', photos: ['1539'] },
   { name: 'Living room', pos: [0.87, 3.12], look: [1.94, 1.0, 0.7], size: 'ldk', point: 'Open concept with a walk-out to the balcony', photos: ['1548', '1550', '1551'] },
   { name: 'Balcony', pos: [4.24, -0.8], look: [2.74, 1.0, -9], size: null, point: 'Open city views from a high floor', photos: ['1542'] },
   { name: 'Primary bedroom', pos: [2.95, 3.05], look: [2.15, 0.85, 6.0], size: 'bed', point: 'Double closet with a closet organizer', photos: ['1537', '1536'] }
 ];
-const VIA = [[], [], [[4.2, 5.8], [4.2, 4.2], [4.1, 3.65]], [[2.71, 2.95], [2.71, 1.4]], [[1.89, 0.42], [0.74, 0.95], [0.69, 2.5]], [[0.69, 2.5], [0.69, 1.0], [1.89, 0.45], [2.89, 0.42], [4.21, 0.32]], [[4.19, 0.35], [2.89, 0.45], [2.74, 1.2], [2.74, 2.5]]];
+// doors the tour opens: on arrival at a stop, and before walking a leg
+const STOP_OPEN = { 1: ['bath'], 2: ['laundry'], 7: ['bedLiving'] };
+const LEG_OPEN = { 5: ['balcony'], 6: ['balcony', 'bedLiving'] };
+const TOUR_CLOSE = ['entry', 'linen', 'pantry', 'closetA', 'closetB'];
+const VIA = [[], [], [[4.0, 6.6], [4.12, 5.6], [4.12, 4.3], [4.0, 3.6]], [[2.71, 2.95], [2.71, 1.4]], [[1.89, 0.42], [0.74, 0.95], [0.69, 2.5]], [[0.69, 2.5], [0.69, 1.0], [1.89, 0.45], [2.89, 0.42], [4.21, 0.32]], [[4.19, 0.35], [2.89, 0.45], [2.74, 1.2], [2.74, 2.5]]];
 let tour = null;
 function buildLeg(i) {
   const a = STOPS[i], b = STOPS[i + 1];
@@ -2921,6 +3130,7 @@ function startTour() {
   $('bTour').hidden = true; $('bView').hidden = true;
   $('tcDots').innerHTML = STOPS.map(() => '<i></i>').join('');
   tour = { i: 0, phase: 'arrive', t: 0, leg: null };
+  TOUR_CLOSE.forEach(id => setDoor(id, false));
   const s = STOPS[0];
   flyTo(new THREE.Vector3(s.pos[0], EYE, s.pos[1]), lookQuat(new THREE.Vector3(s.pos[0], EYE, s.pos[1]), new THREE.Vector3(...s.look)), 2.2, () => { tour.phase = 'pause'; tour.t = 0; showCard(0); });
 }
@@ -2953,6 +3163,7 @@ function updateTour(dt) {
     if (tour.t > pauseFor(tour.i)) {
       $('tourCard').classList.add('fade');
       if (tour.i >= STOPS.length - 1) { endTour(true); return; }
+      (LEG_OPEN[tour.i] || []).forEach(id => setDoor(id, true));
       tour.leg = buildLeg(tour.i); tour.phase = 'move'; tour.t = 0;
       tour.qStart = camera.quaternion.clone();
     }
@@ -2967,6 +3178,7 @@ function updateTour(dt) {
   const q = tour.qStart.clone().slerp(qPath, smooth(0, 0.25, u)).slerp(qEnd, smooth(0.62, 1, u));
   camera.position.copy(p);
   camera.quaternion.slerp(q, Math.min(1, dt * 5));
+  if (u > 0.55) (STOP_OPEN[tour.i + 1] || []).forEach(id => { const d = doorById(id); if (d && d.target < 0.5) setDoor(d, true); });
   if (u >= 1) { tour.i++; tour.phase = 'pause'; tour.t = 0; showCard(tour.i); }
 }
 
@@ -3091,7 +3303,13 @@ function planCheck() {
   }
   // walkability: every tour stop must be reachable and clear of furniture
   const blocked = STOPS.filter(s => { const [x, z] = collide(s.pos[0], s.pos[1]); return Math.hypot(x - s.pos[0], z - s.pos[1]) > 0.02; }).map(s => s.name);
-  return { rooms, doors: DOORS.map(d => ({ name: d.name, width_m: +d.w.toFixed(2), width_in: Math.round(d.w / 0.0254) })), clashes, blockedStops: blocked, ceiling_m: H };
+  const G = 0.05, X0 = -0.3, Z0 = -1.5, NX = Math.round(6.1 / G), NZ = Math.round(10.2 / G), seen = new Uint8Array(NX * NZ);
+  const free = (i, j) => { const x = X0 + i * G, z = Z0 + j * G, [a, b] = collide(x, z); return Math.abs(a - x) < 1e-6 && Math.abs(b - z) < 1e-6; };
+  const cell = (x, z) => [Math.round((x - X0) / G), Math.round((z - Z0) / G)];
+  const [si, sj] = cell(START.x, START.z), q = [si + sj * NX]; seen[q[0]] = 1;
+  while (q.length) { const k = q.pop(), i = k % NX, j = (k - i) / NX; for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = i + di, b = j + dj; if (a < 0 || b < 0 || a >= NX || b >= NZ) continue; const n = a + b * NX; if (seen[n]) continue; seen[n] = 2; if (free(a, b)) { seen[n] = 1; q.push(n); } } }
+  const unreachable = STOPS.filter(s => { const [i, j] = cell(s.pos[0], s.pos[1]); return seen[i + j * NX] !== 1; }).map(s => s.name);
+  return { rooms, doors: DOORS.map(d => ({ name: d.name, width_m: +d.w.toFixed(2), width_in: Math.round(d.w / 0.0254) })), clashes, blockedStops: blocked, unreachableStops: unreachable, ceiling_m: H };
 }
 window.__planCheck = planCheck();
 console.log('[plan check]', JSON.stringify(window.__planCheck));
@@ -3121,6 +3339,8 @@ function frame() {
   } else if (mode === 'walk') updateWalk(dt);
   else if (mode === 'tour') updateTour(dt);
   else if (mode === 'doll' || mode === 'welcome') { if (orbit.enabled) orbit.update(); }
+  updateDoors(dt);
+  updateDoorIcons();
   updateLabels();
   if (!PV.cover && !window.__noRender) renderer.render(scene, camera);
   if (firstFrame) { firstFrame = false; $('loadMsg').textContent = ''; }
@@ -3139,12 +3359,19 @@ window.__qa = {
   doll() { leaveWelcome(); enterDoll(false); fly = null; camera.position.copy(DOLL_POS); camera.lookAt(orbit.target); orbit.enabled = true; },
   tour: () => { leaveWelcome(); startTour(); },
   tourState: () => tour && { i: tour.i, phase: tour.phase },
-  stop(i) { leaveWelcome(); if (!tour) startTour(); fly = null; tour.i = i; tour.phase = 'pause'; tour.t = 0; const st = STOPS[i]; camera.position.set(st.pos[0], EYE, st.pos[1]); camera.quaternion.copy(lookQuat(camera.position, new THREE.Vector3(...st.look))); showCard(i); },
+  stop(i) { leaveWelcome(); if (!tour) startTour(); fly = null; tour.i = i; tour.phase = 'pause'; tour.t = 0; const st = STOPS[i]; camera.position.set(st.pos[0], EYE, st.pos[1]); camera.quaternion.copy(lookQuat(camera.position, new THREE.Vector3(...st.look))); showCard(i); (STOP_OPEN[i] || []).forEach(id => setDoor(id, true)); },
   skipToEnd() { tour.t = pauseFor(tour.i) - 0.2; },
   gallery: (i) => { leaveWelcome(); openGallery(); if (i !== undefined) galShow(i); },
   mode: () => mode,
   player: () => ({ x: +player.x.toFixed(3), z: +player.z.toFixed(3), yaw: +player.yaw.toFixed(3), joy: [+joy.x.toFixed(2), +joy.y.toFixed(2)], fly: !!fly }),
-  fov(f) { camera.fov = f; camera.updateProjectionMatrix(); }
+  fov(f) { camera.fov = f; camera.updateProjectionMatrix(); },
+  door(id, open) { setDoor(id, open); },
+  doors: () => OPS.map(d => ({ id: d.id, open: d.target > 0.5, t: +d.t.toFixed(2), icon: !!(d.el && d.el.classList.contains('on')) })),
+  doorAt: (x, y) => { const d = doorAt(x, y); return d && d.id; },
+  doorDbg(id) { const d = doorById(id); const dist = camera.position.distanceTo(d.anchor); _dray.set(camera.position, _dv2.copy(d.anchor).sub(camera.position).normalize()); _dray.far = dist - 0.06;
+    const hits = _dray.intersectObjects(OCCLUDERS, false).map(h => { const b = new THREE.Box3().setFromObject(h.object); return [+h.distance.toFixed(2), b.min.toArray().map(v => +v.toFixed(2)), b.max.toArray().map(v => +v.toFixed(2))]; });
+    const dh = _dray.intersectObjects(DOOR_MESHES, false).filter(h => h.object.userData.op !== d).map(h => [h.object.userData.op.id, +h.distance.toFixed(2)]);
+    return { anchor: d.anchor.toArray().map(v => +v.toFixed(2)), cam: camera.position.toArray().map(v => +v.toFixed(2)), dist: +dist.toFixed(2), hits, dh }; }
   ,view(px, py, pz, tx, ty, tz) { orbit.target.set(tx, ty, tz); camera.position.set(px, py, pz); camera.lookAt(tx, ty, tz); orbit.update(); }
 };
 })();
