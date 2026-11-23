@@ -2274,9 +2274,13 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 // mid: phones/tablets (half-resolution AO, 2x MSAA, 64 px probes); low: WebGL1 or ?q=low (direct render, no post).
 const QS = new URLSearchParams(location.search);
 const GL2 = renderer.capabilities.isWebGL2;
-let TIER = QS.get('q') || (!GL2 || !window.ADDONS ? 'low' : isTouch ? 'mid' : 'high');
-if (TIER !== 'low' && (!GL2 || !window.ADDONS)) TIER = 'low';
-const POST = TIER !== 'low';
+// HDR render targets (needed for the light probes and the photographic post-processing) are missing on some older Android GPUs
+const HDR_RT = GL2 && (renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float'));
+const UNIF_OK = (renderer.capabilities.maxFragmentUniforms || 0) >= 200;
+let TIER = QS.get('q') || (!GL2 || !HDR_RT || !UNIF_OK || !window.ADDONS ? 'low' : isTouch ? 'mid' : 'high');
+if (TIER !== 'low' && (!GL2 || !HDR_RT || !window.ADDONS)) TIER = 'low';
+const POST = TIER !== 'low';          // light probes + post-processing available on this device
+const DESK = TIER === 'high';
 // Khronos PBR Neutral tone mapping: keeps whites white and wood/paint colours true, rolls highlights off softly (windows keep detail)
 const NEUTRAL_GLSL = `vec3 pbrNeutral( vec3 color ) {
   const float startCompression = 0.8 - 0.04; const float desaturation = 0.15;
@@ -3410,13 +3414,13 @@ const EMIS = [ // [material, day, night]
 // walls). Re-rendering the probes feeds the last bounce back in, so a couple of passes give multi-bounce indirect light: the floor
 // warms the ceiling, the window side is brighter than the back of the room, the dark den stays darker. The probe of the room you
 // are in also supplies the reflections.
-const PROBE_RES = TIER === 'high' ? 128 : 64;
+const PROBE_RES = 64;
 const PROBES = [
   { room: 'living', p: [1.45, 1.35, 2.25] }, { room: 'bed', p: [4.45, 1.35, 1.95] }, { room: 'kd', p: [1.35, 1.5, 6.55] },
   { room: 'den', p: [4.35, 1.35, 5.75] }, { room: 'bath', p: [4.65, 1.45, 8.45] }, { room: 'entry', p: [2.25, 1.45, 9.25] }
 ].map(pr => {
   const r = ROOMS.find(q => q.id === pr.room);
-  const rt = new THREE.WebGLCubeRenderTarget(PROBE_RES, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+  const rt = new THREE.WebGLCubeRenderTarget(PROBE_RES, { type: HDR_RT ? THREE.HalfFloatType : THREE.UnsignedByteType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
   return Object.assign(pr, { rect: [r.x1, r.x2, r.z1, r.z2], rt, dc: new THREE.Color(0.5, 0.5, 0.5) });
 });
 const cubeCam = new THREE.CubeCamera(0.05, 1200, PROBES[0].rt);
@@ -3438,17 +3442,61 @@ function renderProbe(i) {
   M.ceil.colorWrite = cw; M.ceil.depthWrite = cd; for (const m of CEIL_AO) m.visible = cw; setOutside(ov);
   for (const L of LAMPS) if (L.s) L.s.visible = true;
   if (POST) {
-    const lp = ADDONS.LightProbeGenerator.fromCubeRenderTarget(renderer, pr.rt);
-    for (let k = 0; k < 9; k++) GI.giSH.value[i * 9 + k].copy(lp.sh.coefficients[k]);
-    pr.dc.setRGB(lp.sh.coefficients[0].x, lp.sh.coefficients[0].y, lp.sh.coefficients[0].z);
+    const sh = probeSH(pr.rt);
+    for (let k = 0; k < 9; k++) GI.giSH.value[i * 9 + k].copy(sh[k]);
+    pr.dc.setRGB(sh[0].x, sh[0].y, sh[0].z);
   }
 }
-function updateEnv(now) {
-  // called when the light changed: queue every probe; they are re-rendered one per frame so dragging the slider stays smooth
-  probeQueue = POST ? PROBES.map((_, i) => i) : [0]; giPasses = 0; envDirty = false; envLast = now;
+// Spherical-harmonic projection of a probe: the cube is resampled into a 6 x 16 x 16 strip (RGBM, 8-bit, readable on any GPU),
+// read back (6 KB) and projected on the CPU.
+const SHN = 16, shRT = new THREE.WebGLRenderTarget(SHN * 6, SHN, { type: THREE.UnsignedByteType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false });
+const shMat = new THREE.ShaderMaterial({
+  uniforms: { tCube: { value: null } }, depthTest: false, depthWrite: false,
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4( position.xy * 2.0, 0.0, 1.0 ); }',
+  fragmentShader: `uniform samplerCube tCube; varying vec2 vUv;
+vec3 shDir( float f, vec2 c ) {
+  if ( f < 0.5 ) return vec3( 1.0, c.y, - c.x ); if ( f < 1.5 ) return vec3( - 1.0, c.y, c.x ); if ( f < 2.5 ) return vec3( c.x, 1.0, - c.y );
+  if ( f < 3.5 ) return vec3( c.x, - 1.0, c.y ); if ( f < 4.5 ) return vec3( c.x, c.y, 1.0 ); return vec3( - c.x, c.y, - 1.0 ); }
+void main() {
+  float f = floor( vUv.x * 6.0 ); vec2 c = vec2( fract( vUv.x * 6.0 ), vUv.y ) * 2.0 - 1.0;
+  vec3 col = textureCube( tCube, normalize( shDir( f, c ) ), 2.0 ).rgb;
+  float m = clamp( max( max( col.r, col.g ), max( col.b, 1e-6 ) ) / 16.0, 1.0 / 255.0, 1.0 ); m = ceil( m * 255.0 ) / 255.0;
+  gl_FragColor = vec4( col / ( m * 16.0 ), m );
+}` });
+const shQuad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), shMat), shScene = new THREE.Scene(), shCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+shQuad.frustumCulled = false; shScene.add(shQuad);
+const shPix = new Uint8Array(SHN * 6 * SHN * 4), shOut = Array.from({ length: 9 }, () => new THREE.Vector3()), shB = new Array(9).fill(0), _shd = new THREE.Vector3();
+function shDirJS(f, cx, cy, v) {
+  if (f === 0) return v.set(1, cy, -cx); if (f === 1) return v.set(-1, cy, cx); if (f === 2) return v.set(cx, 1, -cy);
+  if (f === 3) return v.set(cx, -1, cy); if (f === 4) return v.set(cx, cy, 1); return v.set(-cx, cy, -1);
 }
+function probeSH(rt) {
+  shMat.uniforms.tCube.value = rt.texture;
+  const prevRT = renderer.getRenderTarget(), prevTM = renderer.toneMapping;
+  renderer.toneMapping = THREE.NoToneMapping; renderer.setRenderTarget(shRT); renderer.render(shScene, shCam); renderer.setRenderTarget(prevRT); renderer.toneMapping = prevTM;
+  renderer.readRenderTargetPixels(shRT, 0, 0, SHN * 6, SHN, shPix);
+  for (const v of shOut) v.set(0, 0, 0);
+  let tw = 0;
+  for (let y = 0; y < SHN; y++) for (let x = 0; x < SHN * 6; x++) {
+    const f = Math.floor(x / SHN), cx = ((x % SHN) + 0.5) / SHN * 2 - 1, cy = (y + 0.5) / SHN * 2 - 1;
+    const w = 4 / Math.pow(1 + cx * cx + cy * cy, 1.5); tw += w;
+    shDirJS(f, cx, cy, _shd).normalize(); THREE.SphericalHarmonics3.getBasisAt(_shd, shB);
+    const i = (y * SHN * 6 + x) * 4, m = shPix[i + 3] / 255 * 16, r = shPix[i] / 255 * m, g = shPix[i + 1] / 255 * m, b = shPix[i + 2] / 255 * m;
+    for (let k = 0; k < 9; k++) { const bw = shB[k] * w; shOut[k].x += r * bw; shOut[k].y += g * bw; shOut[k].z += b * bw; }
+  }
+  const norm = 4 * Math.PI / tw; for (const v of shOut) v.multiplyScalar(norm);
+  return shOut;
+}
+function updateEnv(now) {
+  // called when the light changed: queue every probe; they are re-rendered one at a time so moving and dragging stay smooth
+  probeQueue = POST ? PROBES.map((_, i) => i) : [0]; giPasses = firstGI ? 0 : 1; envDirty = false; envLast = now;
+}
+function queueRoomProbe() {     // a door opened or closed: refresh just the room you are in
+  if (!POST) return; const i = probeAt(camera.position.x, camera.position.z); if (!probeQueue.includes(i)) probeQueue.push(i); if (!firstGI) giPasses = 1;
+}
+let probeTick = 0;
 function stepProbes() {
-  if (!probeQueue.length) return;
+  if (!probeQueue.length || (++probeTick & 1)) return;
   renderProbe(probeQueue.shift());
   if (!probeQueue.length && POST && ++giPasses < (firstGI ? 3 : 2)) probeQueue = PROBES.map((_, i) => i);   // further passes = further light bounces
   if (!probeQueue.length) firstGI = false;
@@ -3478,15 +3526,16 @@ vec3 giShAt( const in int b, vec3 n ) {
 }
 vec3 giIrradiance( vec3 n ) {
   vec3 P = vGiPos + n * 0.2;   // look up the light on the side the surface faces
-  vec3 acc = vec3( 0.0 ); float ws = 0.0;
+  vec3 acc = vec3( 0.0 ); float ws = 0.0, best = 1e9; int bi = 0;
   for ( int p = 0; p < ${PROBES.length}; p ++ ) {
     vec4 r = giRect[ p ];
     vec2 d = max( vec2( r.x - P.x, r.z - P.z ), vec2( P.x - r.y, P.z - r.w ) );
     float dist = length( max( d, vec2( 0.0 ) ) );
-    float w = exp2( - dist * dist * 60.0 ) + 1e-5;
-    acc += w * giShAt( p * 9, n ); ws += w;
+    float w = exp2( - dist * dist * 60.0 );
+    if ( w > 0.02 ) { acc += w * giShAt( p * 9, n ); ws += w; }
+    if ( dist < best ) { best = dist; bi = p; }
   }
-  return acc / ws;
+  return ws > 0.0 ? acc / ws : giShAt( bi * 9, n );
 }`;
 const GI_LIGHTS_CHUNK = THREE.ShaderChunk.lights_fragment_maps
   .replace('iblIrradiance += getIBLIrradiance( geometryNormal );', '')
@@ -3523,7 +3572,8 @@ function applyHour(h) {
   sun.intensity = 2.6 * day * (1 - 0.35 * warm) * (POST ? 0.5 : 1);
   skyIllum.copy(PAL.skyLight).lerp(PAL.sunSet, warm * 0.8);
   if (M.linen && M.linen.emissive) M.linen.emissive.copy(M.linen.color).multiplyScalar(0.16 * day * (1 - 0.5 * warm));   // daylight glowing through the linen
-  for (const l of WINLIGHTS) { l.intensity = (POST ? WIN_NITS : WIN_NITS * 0.55) * day * (1 - 0.3 * warm); l.color.copy(PAL.skyLight).lerp(PAL.sunSet, warm * 0.8); }
+  sun.visible = sun.intensity > 0.002;
+  for (const l of WINLIGHTS) { l.visible = day > 0.003; l.intensity = (POST ? WIN_NITS : WIN_NITS * 0.55) * day * (1 - 0.3 * warm); l.color.copy(PAL.skyLight).lerp(PAL.sunSet, warm * 0.8); }
   sun.color.copy(PAL.skyLight).lerp(PAL.sunSet, warm * 0.75);
   const top = PAL.skyTopDay.clone().lerp(PAL.skyTopSet, warm).lerp(PAL.skyTopNight, night);
   const hor = PAL.skyHorDay.clone().lerp(PAL.skyHorSet, warm).lerp(PAL.skyHorNight, night);
@@ -3535,7 +3585,7 @@ function applyHour(h) {
   hemi.intensity = (POST ? lerp(0.15, 0.04, night) : lerp(0.5, 0.07, night)) * (1 - 0.2 * warm);
   fill.intensity = 0.16 * day; fill.color.copy(hor).lerp(PAL.sunDay, 0.75);
   amb.intensity = 0.03 + 0.02 * night;
-  for (const L of LAMPS) { L.l.intensity = lerp(L.day, L.night, night); if (L.s) L.s.material.opacity = 0.5 * night; }
+  for (const L of LAMPS) { L.l.intensity = lerp(L.day, L.night, night); L.l.visible = L.l.intensity > 0.003; if (L.s) L.s.material.opacity = 0.5 * night; }
   for (const [m, d0, n0] of EMIS) m.emissiveIntensity = lerp(d0, n0, night);
   M.city.emissiveIntensity = 0.05 + 1.5 * night;
   M.ground.emissiveIntensity = 2.2 * night;
@@ -3649,7 +3699,7 @@ function updateDoors(dt) {
     d.apply(ease(d.t)); moving = true;
   }
   if (moving) { renderer.shadowMap.needsUpdate = true; doorsMoving = true; }
-  else if (doorsMoving) { doorsMoving = false; renderer.shadowMap.needsUpdate = true; envDirty = true; }
+  else if (doorsMoving) { doorsMoving = false; renderer.shadowMap.needsUpdate = true; queueRoomProbe(); }
 }
 const ICO_SWING = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4.5A1.5 1.5 0 0 1 6.5 3h11A1.5 1.5 0 0 1 19 4.5V21"/><path d="M3 21h18"/><circle cx="15.2" cy="12.5" r="1.1" fill="currentColor" stroke="none"/></svg>';
 const ICO_SLIDE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3.5" width="10" height="17" rx="1.2"/><path d="M17 3.5h3a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1h-3"/><path d="M9 12h9m-3-3 3 3-3 3"/></svg>';
@@ -4184,7 +4234,8 @@ const BRUSH = dataTex((() => {                                 // brushed-metal 
 // --- fabrics become cloth (soft sheen at grazing angles) with a woven relief; same colours
 const FABRICS = ['oat', 'fabric', 'pillow', 'throwMat', 'navy', 'greyFab', 'skirt', 'sheet', 'duvet', 'linen', 'towel', 'towelGrey', 'chan', 'sheep'];
 const SWAP = new Map();
-for (const k of FABRICS) {
+if (!DESK) for (const k of FABRICS) if (M[k]) M[k].userData.detail = { tex: DETAIL, scale: 30, bump: 0, albedo: 0.04, rough: 0, macro: 0.6 };
+for (const k of (DESK ? FABRICS : [])) {
   const o = M[k]; if (!o) continue;
   const c = o.color.clone(), sc = c.clone().lerp(new THREE.Color(1, 1, 1), 0.35);
   const m = new THREE.MeshPhysicalMaterial({ color: c, map: o.map || null, roughness: Math.max(0.82, o.roughness), metalness: 0, side: o.side,
@@ -4200,10 +4251,10 @@ for (const k of ['trim', 'door', 'frameW', 'white']) D(M[k], { tex: DETAIL, scal
 for (const k of ['leather', 'cognac', 'cognacDark']) D(M[k], { tex: DETAIL, scale: 34, bump: 0.004, albedo: 0.06, rough: 0.28, macro: 0.8 });
 for (const k of ['quartz', 'porcelain', 'vanityWhite', 'appliance', 'charcoal', 'ceramicWhite', 'ceramicBlack', 'blackGlass', 'tv']) D(M[k], { tex: DETAIL, scale: 1.6, bump: 0, albedo: 0.01, rough: 0.35, macro: 0.5 });
 D(M.floor, { tex: DETAIL, scale: 0.9, bump: 0, albedo: 0.07, rough: 0.12, macro: 0.22 });   // breaks up the floor repeat
-for (const k of ['walnut', 'walnutUp', 'walnutS', 'oak', 'oakTop', 'espresso', 'butcher', 'pine']) { const m = M[k]; if (m && m.map) { m.bumpMap = m.map; m.bumpScale = 0.9; m.userData.detail = { tex: DETAIL, scale: 3, bump: 0, albedo: 0.03, rough: 0.18, macro: 0.7 }; } }
-for (const k of ['tileFloor', 'tileFloorL', 'tileWall', 'mosaic', 'splash', 'trav']) { const m = M[k]; if (m && m.map) { m.bumpMap = m.map; m.bumpScale = 0.7; } }
-for (const k of ['rugL', 'rugB', 'rugD', 'runner']) { const m = M[k]; if (m && m.map) { m.bumpMap = m.map; m.bumpScale = 2.2; m.userData.detail = { tex: DETAIL, scale: 40, bump: 0.005, albedo: 0.06, rough: 0, macro: 0.8 }; } }
-for (const k of ['steel', 'alu', 'sink']) { const m = M[k]; if (m) { m.bumpMap = BRUSH; m.bumpScale = 0.6; m.roughnessMap = BRUSH; } }
+for (const k of ['walnut', 'walnutUp', 'walnutS', 'oak', 'oakTop', 'espresso', 'butcher', 'pine']) { const m = M[k]; if (m && m.map) { if (DESK) { m.bumpMap = m.map; m.bumpScale = 0.9; } m.userData.detail = { tex: DETAIL, scale: 3, bump: 0, albedo: 0.03, rough: 0.18, macro: 0.7 }; } }
+for (const k of ['tileFloor', 'tileFloorL', 'tileWall', 'mosaic', 'splash', 'trav']) { const m = M[k]; if (m && m.map) { if (DESK) { m.bumpMap = m.map; m.bumpScale = 0.7; } } }
+for (const k of ['rugL', 'rugB', 'rugD', 'runner']) { const m = M[k]; if (m && m.map) { if (DESK) { m.bumpMap = m.map; m.bumpScale = 2.2; } m.userData.detail = { tex: DETAIL, scale: 40, bump: 0.005, albedo: 0.06, rough: 0, macro: 0.8 }; } }
+for (const k of ['steel', 'alu', 'sink']) { const m = M[k]; if (m && DESK) { m.bumpMap = BRUSH; m.bumpScale = 0.6; m.roughnessMap = BRUSH; } }
 for (const k of ['chrome', 'brass', 'mblack', 'copper']) { const m = M[k]; if (m) m.userData.detail = { tex: DETAIL, scale: 6, bump: 0, albedo: 0, rough: 0.25, macro: 1 }; }
 
 // --- swap in the cloth materials, then add per-room bounce light (and surface detail) to every interior material
@@ -4217,8 +4268,8 @@ HOME.traverse(o => {
 });
 const DETAIL_PARS = `
 uniform sampler2D tDet; uniform vec4 detA; uniform float detMacro; varying vec3 vDetN;
-float detTri( vec3 p, vec3 n, float s ) { vec3 w = pow( abs( n ), vec3( 4.0 ) ); w /= ( w.x + w.y + w.z );
-  return texture2D( tDet, p.yz * s ).r * w.x + texture2D( tDet, p.xz * s ).r * w.y + texture2D( tDet, p.xy * s ).r * w.z; }
+float detTri( vec3 p, vec3 n, float s ) { vec3 a = abs( n ); vec2 uv = ( a.x > a.y && a.x > a.z ) ? p.yz : ( a.y > a.z ? p.xz : p.xy ); return texture2D( tDet, uv * s ).r; }`;
+const DETAIL_PARS_DESK = `
 vec3 detPerturb( vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float fd ) {
   vec3 sx = normalize( dFdx( surf_pos ) ), sy = normalize( dFdy( surf_pos ) ); vec3 r1 = cross( sy, surf_norm ), r2 = cross( surf_norm, sx );
   float det = dot( sx, r1 ) * fd; vec3 grad = sign( det ) * ( dHdxy.x * r1 + dHdxy.y * r2 ); return normalize( abs( det ) * surf_norm - grad ); }`;
@@ -4241,14 +4292,15 @@ function upgradeShader(m) {
     if (det) {
       sh.uniforms.tDet = { value: det.tex }; sh.uniforms.detA = { value: new THREE.Vector4(det.scale, det.bump, det.albedo, det.rough) }; sh.uniforms.detMacro = { value: det.macro };
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + DETAIL_PARS)
-        .replace('#include <map_fragment>', '#include <map_fragment>\n{ float dm = detTri( vGiPos, vDetN, detMacro ); diffuseColor.rgb *= 1.0 + ( dm - 0.5 ) * 2.0 * detA.z; }')
+        .replace('#include <map_fragment>', '#include <map_fragment>\n{ float dm = detTri( vGiPos, vDetN, detMacro ); diffuseColor.rgb *= 1.0 + ( dm - 0.5 ) * 2.0 * detA.z; }');
+      if (DESK) sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + DETAIL_PARS_DESK)
         .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n{ float dr = detTri( vGiPos * 1.37 + 0.31, vDetN, detA.x * 0.45 ); roughnessFactor = clamp( roughnessFactor * ( 1.0 + ( dr - 0.5 ) * 2.0 * detA.w ), 0.03, 1.0 ); }')
         .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nif ( detA.y > 0.0 ) { float dh = detTri( vGiPos, vDetN, detA.x ); normal = detPerturb( - vViewPosition, normal, vec2( dFdx( dh ), dFdy( dh ) ) * detA.y * 60.0, faceDirection ); }');
     }
   };
-  const key = (POST ? 'gi' : '') + (det ? 'det' : '') + (prev ? prev.toString().length : '');
+  const key = (POST ? 'gi' : '') + (det ? (DESK ? 'det' : 'detl') : '') + (prev ? prev.toString().length : '');
   m.customProgramCacheKey = () => key;
-  if (det && det.bump > 0) m.extensions = Object.assign(m.extensions || {}, { derivatives: true });
+  if (det && det.bump > 0 && DESK) m.extensions = Object.assign(m.extensions || {}, { derivatives: true });
   m.needsUpdate = true;
 }
 for (const m of INTERIOR) if (POST || m.userData.detail) upgradeShader(m);
@@ -4296,15 +4348,15 @@ void main() {
 };
 let composer = null, gtao = null, grade = null;
 if (POST) {
-  const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: TIER === 'high' ? 4 : 2 });
+  const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: Math.min(TIER === 'high' ? 4 : 2, renderer.capabilities.maxSamples || 4) });
   composer = new ADDONS.EffectComposer(renderer, rt);
   composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight);
   composer.addPass(new ADDONS.RenderPass(scene, viewCam));
   gtao = new ADDONS.GTAOPass(scene, viewCam, innerWidth, innerHeight);
-  const aoScale = TIER === 'high' ? 1 : 0.5, gtaoSize = gtao.setSize.bind(gtao);
+  const aoScale = 0.5, gtaoSize = gtao.setSize.bind(gtao);
   gtao.setSize = (w, h) => gtaoSize(Math.max(1, Math.round(w * aoScale)), Math.max(1, Math.round(h * aoScale)));
-  gtao.updateGtaoMaterial({ radius: 0.36, distanceExponent: 1.4, thickness: 1.2, scale: 1.0, samples: TIER === 'high' ? 16 : 8, distanceFallOff: 1.0, screenSpaceRadius: false });
-  gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: TIER === 'high' ? 8 : 5, radiusExponent: 1.5, rings: 2, samples: TIER === 'high' ? 16 : 8 });
+  gtao.updateGtaoMaterial({ radius: 0.36, distanceExponent: 1.4, thickness: 1.2, scale: 1.0, samples: DESK ? 12 : 8, distanceFallOff: 1.0, screenSpaceRadius: false });
+  gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: DESK ? 6 : 4, radiusExponent: 1.5, rings: 2, samples: DESK ? 8 : 6 });
   gtao.blendIntensity = 0.8;
   // only solid surfaces cast ambient occlusion: glass, decals, glows, the sky and the view photo are skipped
   gtao.overrideVisibility = function () { const cache = this._visibilityCache; this.scene.traverse(o => { cache.set(o, o.visible); if (o.isPoints || o.isLine || o.isSprite || o === sky || (o.material && (o.material.transparent || o.material.isMeshBasicMaterial || (o.material === M.ceil && !M.ceil.colorWrite)))) o.visible = false; }); };
@@ -4312,8 +4364,54 @@ if (POST) {
   grade = new ADDONS.ShaderPass(GradeShader);
   composer.addPass(grade);
   // with real ambient occlusion the painted-on corner shading is mostly retired (kept faintly for soft contact)
-  AO_FLOOR.opacity = 0.12; AO_CEIL.opacity = 0.06;
-  HOME.traverse(o => { if (o.isMesh && o.material && o.material.alphaMap === T_AOBLOB) o.material.opacity *= 0.45; });
+}
+// quality levels: the image stays the same, only resolution, anti-aliasing and the AO pass change; a governor steps down
+// automatically if frames get slow while moving, and remembers the level for this device
+const QLEVELS = [
+  { mp: 2.4, post: 1, msaa: 4, ao: 1 }, { mp: 1.6, post: 1, msaa: 4, ao: 1 }, { mp: 1.15, post: 1, msaa: 2, ao: 1 },
+  { mp: 1.0, post: 1, msaa: 2, ao: 0 }, { mp: 0.9, post: 0 }, { mp: 0.6, post: 0 }
+];
+const AO_PAINT = HOME ? [] : [];
+HOME.traverse(o => { if (o.isMesh && o.material && (o.material === AO_FLOOR || o.material === AO_CEIL || o.material.alphaMap === T_AOBLOB) && !AO_PAINT.some(e => e.m === o.material)) AO_PAINT.push({ m: o.material, op: o.material.opacity }); });
+let qLevel = POST ? (DESK ? 0 : 2) : 4;
+try { const sv = +localStorage.getItem('tourQ-' + TIER); if (sv > qLevel && sv < QLEVELS.length) qLevel = sv; } catch (e) {}
+if (QS.get('lvl')) qLevel = clamp(+QS.get('lvl'), 0, QLEVELS.length - 1);
+let usePost = false, qChangeT = 0;
+function applyQuality() {
+  const L = QLEVELS[qLevel];
+  pixelRatio = clamp(Math.sqrt(L.mp * 1e6 / (innerWidth * innerHeight)), 0.5, Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight);
+  usePost = !!(composer && L.post);
+  renderer.toneMapping = usePost ? THREE.NoToneMapping : THREE.CustomToneMapping;
+  if (composer) {
+    const sm = Math.min(L.msaa || 0, renderer.capabilities.maxSamples || 4);
+    for (const t of [composer.renderTarget1, composer.renderTarget2]) if (t.samples !== sm) { t.samples = sm; t.dispose(); }
+    composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight);
+    gtao.enabled = !!L.ao;
+  }
+  const realAO = usePost && gtao && gtao.enabled;   // with real AO the painted-on corner shading is mostly retired
+  for (const e of AO_PAINT) e.m.opacity = realAO ? e.op * (e.m === AO_FLOOR ? 0.35 : e.m === AO_CEIL ? 0.27 : 0.45) : e.op;
+}
+applyQuality();
+(function precompileLightStates() {
+  if (!renderer.compileAsync) return;
+  try {
+    const rtPrev = renderer.getRenderTarget();
+    if (usePost) renderer.setRenderTarget(composer.renderTarget1);      // compile the variants the HDR pass actually uses
+    for (const h of [18.9, 21.5]) { applyHour(h); syncViewCam(1); renderer.compileAsync(scene, viewCam).catch(() => {}); }
+    renderer.setRenderTarget(rtPrev);
+  } catch (e) {}
+  applyHour(hour);
+})();
+const perf = { acc: 0, n: 0, last: performance.now(), t0: performance.now() };
+function governQuality(now) {
+  const raw = (now - perf.last) / 1000; perf.last = now;
+  if (window.__noAdapt || PV.cover || probeQueue.length || now - perf.t0 < 3000 || now - qChangeT < 1500 || raw > 0.5) { perf.acc = 0; perf.n = 0; return; }
+  perf.acc += raw; perf.n++;
+  if (perf.acc > 1.0) {
+    const avg = perf.acc / perf.n; perf.acc = 0; perf.n = 0;
+    if (avg > 1 / 40 && qLevel < QLEVELS.length - 1) { qLevel++; applyQuality(); qChangeT = now; try { localStorage.setItem('tourQ-' + TIER, qLevel); } catch (e) {} }
+  }
 }
 // metering: exposure and white balance follow the light in the room you are standing in (like a photographer metering each room)
 const meter = { exp: 1, wb: new THREE.Vector3(1, 1, 1), col: new THREE.Color() }, _mdir = new THREE.Vector3(), _mcol = new THREE.Color();
@@ -4340,10 +4438,9 @@ function updateMeter(dt) {
   const tr = lerp(1, il / Math.max(ILLUM.r, 1e-4), wbK), tg = lerp(1, il / Math.max(ILLUM.g, 1e-4), wbK), tb = lerp(1, il / Math.max(ILLUM.b, 1e-4), wbK);
   const n = 0.2126 * tr + 0.7152 * tg + 0.0722 * tb;
   meter.wb.x += (clamp(tr / n, 0.8, 1.25) - meter.wb.x) * k; meter.wb.y += (clamp(tg / n, 0.8, 1.25) - meter.wb.y) * k; meter.wb.z += (clamp(tb / n, 0.8, 1.25) - meter.wb.z) * k;
-  if (grade) { grade.uniforms.exposure.value = meter.exp; grade.uniforms.wb.value.copy(meter.wb); }
-  else renderer.toneMappingExposure = meter.exp;
+  if (grade) grade.uniforms.wb.value.copy(meter.wb);
 }
-function renderFrame() { if (composer) composer.render(); else renderer.render(scene, viewCam); }
+function renderFrame() { if (usePost) { grade.uniforms.exposure.value = meter.exp; composer.render(); } else { renderer.toneMappingExposure = meter.exp; renderer.render(scene, viewCam); } }
 
 /* ================= main loop ================= */
 dollPos(); camera.position.copy(DOLL_POS); camera.lookAt(orbit.target);
@@ -4380,15 +4477,9 @@ function frame() {
   if (firstFrame) { firstFrame = false; $('loadMsg').textContent = ''; }
   // adaptive resolution: keep it smooth on modest laptops/phones
   frames++; slowT = dt > 0.034 ? slowT + dt : Math.max(0, slowT - dt * 0.5);
-  if (slowT > 2.5 && !window.__noAdapt) {
-    // keep it smooth: first lower the resolution a little, then drop the ambient-occlusion pass, then the resolution again
-    if (pixelRatio > 1.5) { pixelRatio = Math.max(1, pixelRatio - 0.25); }
-    else if (gtao && gtao.enabled) gtao.enabled = false;
-    else if (pixelRatio > 1) pixelRatio = Math.max(1, pixelRatio - 0.25);
-    renderer.setPixelRatio(pixelRatio); if (composer) { composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight); } slowT = 0;
-  }
+  governQuality(now);
 }
-addEventListener('resize', () => { fitFov(); renderer.setSize(innerWidth, innerHeight); if (composer) composer.setSize(innerWidth, innerHeight); });
+addEventListener('resize', () => { fitFov(); applyQuality(); });
 frame();
 $('loadMsg').textContent = '';
 
@@ -4405,7 +4496,7 @@ window.__qa = {
   mode: () => mode,
   player: () => ({ x: +player.x.toFixed(3), z: +player.z.toFixed(3), yaw: +player.yaw.toFixed(3), joy: [+joy.x.toFixed(2), +joy.y.toFixed(2)], fly: !!fly }),
   fov(f) { camera.fov = f; camera.updateProjectionMatrix(); },
-  render: () => ({ tier: TIER, post: POST, exp: +meter.exp.toFixed(3), wb: meter.wb.toArray().map(v => +v.toFixed(3)), probes: PROBES.map(p => [p.room, +p.dc.r.toFixed(3), +p.dc.g.toFixed(3), +p.dc.b.toFixed(3)]), queue: probeQueue.length, ao: !!(gtao && gtao.enabled), texMs, calls: renderer.info.render.calls, tris: renderer.info.render.triangles }),
+  render: () => ({ tier: TIER, post: POST, exp: +meter.exp.toFixed(3), wb: meter.wb.toArray().map(v => +v.toFixed(3)), probes: PROBES.map(p => [p.room, +p.dc.r.toFixed(3), +p.dc.g.toFixed(3), +p.dc.b.toFixed(3)]), queue: probeQueue.length, ao: !!(gtao && gtao.enabled && usePost), level: qLevel, pr: +pixelRatio.toFixed(2), post2: usePost, texMs, calls: renderer.info.render.calls, tris: renderer.info.render.triangles }),
   ao(on) { if (gtao) gtao.enabled = on; },
   door(id, open) { setDoor(id, open); },
   doors: () => OPS.map(d => ({ id: d.id, open: d.target > 0.5, t: +d.t.toFixed(2), icon: !!(d.el && d.el.classList.contains('on')) })),
